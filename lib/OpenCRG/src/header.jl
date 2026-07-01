@@ -81,8 +81,11 @@ function group_sections(header_lines::Vector{String})
     for raw in header_lines
         kw = section_marker(raw)
         if kw !== nothing
+            if isempty(kw) || all(==('$'), kw)   # bare "$" OR an all-"$" terminator line
+                current = ""
+                continue
+            end
             current = kw
-            isempty(kw) && continue
             haskey(sections, current) || (sections[current] = String[])
             continue
         end

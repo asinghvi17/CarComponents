@@ -62,4 +62,13 @@
         @test OpenCRG.parse_keyvalue_strings(["PROJ_NM = UTM", "PROJ_ZONE = 32"]) ==
             Dict("PROJ_NM"=>"UTM", "PROJ_ZONE"=>"32")
     end
+
+    @testset "\$ROAD_CRG_OPTS / \$ROAD_CRG_MPRO parse as generic dicts (not applied)" begin
+        opts = OpenCRG.parse_keyvalues(["BORDER_MODE_U = 2", "BORDER_MODE_V = 0"])
+        @test opts["BORDER_MODE_U"] == 2.0
+
+        mpro = OpenCRG.parse_keyvalue_strings(["PROJ_NM = UTM", "GELL_A = 6378137.0"])
+        @test mpro["PROJ_NM"] == "UTM"
+        @test mpro["GELL_A"] == "6378137.0"   # kept as a string; no geodesy math is implemented
+    end
 end

@@ -3,14 +3,30 @@
     @testset "decode_ascii_field" begin
         @test OpenCRG.decode_ascii_field("**unused**") == 0.0   # exact literal only
         @test isnan(OpenCRG.decode_ascii_field("*missing*"))
-        # decode_ascii_field's own docstring documents its precondition: the input is
-        # "already stripped of surrounding whitespace by the caller" (decode_ascii_payload
-        # always calls it as decode_ascii_field(strip(field))). Calling it directly with an
-        # unstripped, space-padded field -- as fixed-width LRFI fields commonly are -- would
-        # violate that precondition and spuriously return NaN (the space isn't in the accepted
-        # character set), so this test strips first, matching real call-site usage.
-        @test OpenCRG.decode_ascii_field(strip(" 0.0111111")) == 0.0111111
+        @test OpenCRG.decode_ascii_field(" 0.0111111") == 0.0111111
         @test OpenCRG.decode_ascii_field("-1.500000") == -1.5
+        @test OpenCRG.decode_ascii_field("1.0D+02") == 100.0   # Fortran D-exponent normalization
+        @test isnan(OpenCRG.decode_ascii_field("**unused**" * " "^10))   # 20-char LDFI-width field: never matches the 10-char literal
+    end
+
+    @testset "decode_ascii_payload: exact multiple of per_record, no line wrap (8 channels at LRFI)" begin
+        # Each LRFI field is a fixed 10-char width, right-justified -- NOT merely
+        # space-separated 6-decimal numbers (a naive single-space join is only 9 chars wide
+        # for non-negative values like "0.000000", so it silently misaligns every field after
+        # the first; verified directly by round-tripping through decode_ascii_payload).
+        lines = [" -1.000000  0.000000  1.000000  2.000000  3.000000  4.000000  5.000000  6.000000"]
+        m = OpenCRG.decode_ascii_payload(lines, :LRFI, 8)
+        @test size(m) == (1, 8)
+        @test m[1, :] == [-1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+    end
+
+    @testset "decode_ascii_payload: non-whole-row remainder is an error, not a silent truncation" begin
+        lines = [
+            "**unused** 0.0000000**unused** 0.0000000 0.0000000 0.0000000 0.0000000 0.0000000",
+            " 0.0000000 0.0000000",
+            " 0.0000000 0.0000000",   # a stray 3rd line: 3 lines don't divide evenly by 2 lines/row
+        ]
+        @test_throws Exception OpenCRG.decode_ascii_payload(lines, :LRFI, 10)
     end
 
     @testset "decode_ascii_payload: row-wrapping, 10 channels at LRFI (8/record)" begin
@@ -23,10 +39,10 @@
         @test size(m) == (1, 10)
         @test m[1,1] == 0.0          # **unused** -> 0.0
         @test m[1,2] == 0.0
-        # Channel 3 (slope) at row 0 is, byte-for-byte in the real fixture, the exact
-        # literal "**unused**" (verified directly against handmade_curved_banked_sloped.crg
-        # rather than assumed) -- NOT "*missing*". decode_ascii_field only maps the exact
-        # 10-char literal "**unused**" to 0.0, so this decodes to 0.0, not NaN.
+        # Channel 3 is "slope" (not "banking" -- the file's channel order is phi, banking,
+        # slope, then 7 long-sections). At row 0 it is genuinely the exact literal
+        # "**unused**" in the real file (confirmed by reading the raw bytes), so it decodes
+        # to 0.0, not NaN.
         @test m[1,3] == 0.0
     end
 

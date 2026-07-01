@@ -187,3 +187,100 @@ function parse_road_crg(lines::Vector{String})
         g("REFERENCE_LINE_START_B"), go("REFERENCE_LINE_END_B"),
     )
 end
+
+"""
+One `D:` channel from `\$KD_DEFINITION`. `v`/`index` are only set for
+`kind == :long_section`, in the position-form / index-form respectively
+(mutually exclusive — see `parse_kd_definition`). `U:` (virtual) channels
+are discarded entirely during parsing and never produce a `ChannelDef`,
+matching the reference implementation's `decodeIndependent`, which is a
+documented no-op.
+"""
+struct ChannelDef
+    kind::Symbol   # :phi, :banking, :slope, :long_section
+    v::Union{Float64,Nothing}
+    index::Union{Int,Nothing}
+end
+
+const CRG_FORMAT_CODES = Dict("LRFI"=>:LRFI, "LDFI"=>:LDFI, "KRBI"=>:KRBI, "KDBI"=>:KDBI)
+
+"""
+    parse_kd_definition(lines) -> (format_code::Symbol, channels::Vector{ChannelDef})
+
+Parse the `#:` format-code line (default `:KRBI` if absent, per spec) and
+`D:` channel lines, in declaration order. `D:long section at v = X,unit`
+(position-form) and `D:long section N,unit` (index-form) cannot be mixed in
+one file — the reference loader treats that as fatal, and so do we.
+"""
+function parse_kd_definition(lines::Vector{String})
+    format_code = :KRBI
+    channels = ChannelDef[]
+    v_mode = nothing
+    for line in lines
+        if startswith(line, "#:")
+            code = uppercase(strip(line[3:end]))
+            haskey(CRG_FORMAT_CODES, code) || error("unknown CRG data format code: $code")
+            format_code = CRG_FORMAT_CODES[code]
+        elseif startswith(line, "U:")
+            continue
+        elseif startswith(line, "D:")
+            label = line[3:end]
+            comma = findfirst(',', label)
+            name = comma === nothing ? label : label[1:prevind(label, comma)]
+            name_lower = lowercase(strip(name))
+            if occursin("reference line phi", name_lower)
+                push!(channels, ChannelDef(:phi, nothing, nothing))
+            elseif occursin("reference line bank", name_lower)
+                push!(channels, ChannelDef(:banking, nothing, nothing))
+            elseif occursin("reference line slope", name_lower)
+                push!(channels, ChannelDef(:slope, nothing, nothing))
+            elseif occursin("long section", name_lower)
+                atidx = findfirst("at v", name_lower)
+                if atidx !== nothing
+                    v_mode == :index && error("\$KD_DEFINITION mixes explicit and implicit long-section v definitions")
+                    v_mode = :position
+                    eqidx = findfirst('=', name)
+                    v = parse(Float64, strip(name[nextind(name, eqidx):end]))
+                    push!(channels, ChannelDef(:long_section, v, nothing))
+                else
+                    v_mode == :position && error("\$KD_DEFINITION mixes explicit and implicit long-section v definitions")
+                    v_mode = :index
+                    idx = parse(Int, strip(replace(name_lower, "long section" => "")))
+                    push!(channels, ChannelDef(:long_section, nothing, idx))
+                end
+            else
+                error("unrecognized \$KD_DEFINITION channel label: $name")
+            end
+        end
+    end
+    return format_code, channels
+end
+
+"""
+    v_axis(channels, refline) -> Vector{Float64}
+
+The v-coordinate for each `:long_section` channel, in declaration order.
+Index-form derives a uniform axis from `LONG_SECTION_V_RIGHT/_LEFT/_INCREMENT`;
+position-form reads each channel's own parsed `v` directly (including truly
+non-uniform spacing — unlike the reference C implementation, which snaps
+near-uniform spacings and leaves a genuinely non-uniform axis in a code path
+its own authors flag as possibly incomplete, we don't need to worry about
+this at all: OpenCRG.jl does no interpolation itself, so non-uniform v is
+just data, not a numerical hazard).
+"""
+function v_axis(channels::Vector{ChannelDef}, refline::ReferenceLineParams)
+    long_sections = filter(c -> c.kind == :long_section, channels)
+    isempty(long_sections) && return Float64[]
+    if long_sections[1].index !== nothing
+        refline.v_right === nothing && error("index-form long sections require LONG_SECTION_V_RIGHT")
+        n = length(long_sections)
+        inc = refline.v_increment
+        if inc === nothing
+            n == 1 && error("LONG_SECTION_V_INCREMENT required when there is more than one long section")
+            inc = (refline.v_left - refline.v_right) / (n - 1)
+        end
+        return [refline.v_right + (c.index - 1) * inc for c in long_sections]
+    else
+        return [c.v for c in long_sections]
+    end
+end

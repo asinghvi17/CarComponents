@@ -55,3 +55,31 @@
         @test all(isfinite, m[2:end, 1])   # phi is defined for every row except row 1 (index 1 in Julia)
     end
 end
+
+@testset "binary payload decoding" begin
+    @testset "synthetic 2-row x 3-channel KRBI blob catches row/column transposition" begin
+        # Row 0 = [1.0, 2.0, 3.0], Row 1 = [4.0, 5.0, 6.0], packed tightly,
+        # big-endian Float32, no padding between rows (unlike ASCII).
+        vals = Float32[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+        bytes = UInt8[]
+        for v in vals
+            append!(bytes, reverse(reinterpret(UInt8, [v])))  # host is little-endian -> reverse for big-endian
+        end
+        m = OpenCRG.decode_binary_payload(bytes, :KRBI, 3)
+        @test size(m) == (2, 3)
+        @test m[1, :] == [1.0, 2.0, 3.0]
+        @test m[2, :] == [4.0, 5.0, 6.0]
+    end
+
+    @testset "real binary file: shape and no per-row 80-byte alignment" begin
+        bytes = read(joinpath(DATA, "belgian_block.crg"))
+        header_end = OpenCRG.find_header_end(bytes)
+        payload = bytes[header_end:end]
+        m = OpenCRG.decode_binary_payload(payload, :KRBI, 342)
+        @test size(m) == (1001, 342)   # nu is DERIVED: 1369440 bytes ÷ 1368 bytes/row = 1001 (72 trailing padding bytes ignored)
+        @test isnan(m[1, 1])                    # row 0 phi placeholder, per spec/research
+        @test m[2, 1] ≈ 2.6527974605560303       # bit-exact match to REFERENCE_LINE_START_PHI in this file's header
+        @test all(isnan, m[1, 2:22])             # first cross-section's missing left-border samples (verified byte-for-byte: channels 2-22 are NaN)
+        @test isfinite(m[1, 23])                 # first real elevation sample in row 0 (verified: channel 23 == 2.1214599609375)
+    end
+end

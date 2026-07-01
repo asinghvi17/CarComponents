@@ -75,3 +75,37 @@ function decode_ascii_payload(payload_lines::Vector{<:AbstractString}, format_co
     end
     return data
 end
+
+"""
+    decode_binary_payload(payload, format_code, nchannels) -> Matrix{Float64}
+
+Decode `nchannels`-wide big-endian binary payload rows (`Float32` for
+`:KRBI`, `Float64` for `:KDBI`). The row count `nu` is DERIVED via floor
+division, `length(payload) ÷ (nchannels * sizeof(elem))` — trailing padding
+bytes (the payload is padded to a multiple of 80 bytes overall, per spec)
+are simply leftover and ignored, for the same reason `decode_ascii_payload`
+(Task 7) derives its row count from the payload rather than trusting
+`\$ROAD_CRG`'s `start_u`/`end_u`. **Rows are packed tightly with no per-row
+padding or alignment** — unlike ASCII, binary row stride is exactly
+`nchannels * sizeof(elem)` bytes; only the very last record of the *entire*
+payload is padded (with NaNs, per spec) to a multiple of 80 bytes. This was
+confirmed against a real file: row 1 begins at byte offset `342*4 = 1368`
+into `belgian_block.crg`'s payload, and `1368 / 80` is not an integer — rows
+do not start on fresh 80-byte records the way ASCII rows do.
+
+Any IEEE-754 NaN bit pattern (not one specific sentinel) decodes as NaN,
+matching the reference decoder's plain `isnan()` check.
+"""
+function decode_binary_payload(payload::AbstractVector{UInt8}, format_code::Symbol, nchannels::Int)
+    T = BINARY_ELEM_TYPE[format_code]
+    esize = sizeof(T)
+    row_bytes = nchannels * esize
+    nu = length(payload) ÷ row_bytes
+    needed = nu * row_bytes
+    raw = reinterpret(T, Vector{UInt8}(payload[1:needed]))
+    raw_be = ntoh.(raw)
+    # File layout is row-major (channel fastest within a row); Julia's reshape
+    # fills column-major, so reshape(flat, nchannels, nu) puts each file row
+    # into one *column* first — transpose to get our (nu, nchannels) convention.
+    return Float64.(permutedims(reshape(collect(raw_be), nchannels, nu)))
+end

@@ -318,6 +318,11 @@ Base.@kwdef struct RoadCrgMods
     refline_offset_phi::Union{Float64,Nothing} = nothing
 end
 
+"""
+    parse_road_crg_mods(lines) -> RoadCrgMods
+
+Parse `\$ROAD_CRG_MODS` section lines into a `RoadCrgMods`.
+"""
 function parse_road_crg_mods(lines::Vector{String})
     d = parse_keyvalues(lines)
     go(k) = get(d, k, nothing)

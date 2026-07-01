@@ -284,3 +284,53 @@ function v_axis(channels::Vector{ChannelDef}, refline::ReferenceLineParams)
         return [c.v for c in long_sections]
     end
 end
+
+"""
+Every field from `\$ROAD_CRG_MODS`. All optional (`nothing` if absent from
+the file) — `nothing` here means "not present," which matters: e.g.
+`has_refpoint` in `apply_mods` (Task 16) checks presence of *any*
+`refpoint_*` field, not whether it's zero.
+"""
+Base.@kwdef struct RoadCrgMods
+    scale_z_grid::Union{Float64,Nothing} = nothing
+    scale_slope::Union{Float64,Nothing} = nothing
+    scale_banking::Union{Float64,Nothing} = nothing
+    scale_length::Union{Float64,Nothing} = nothing
+    scale_width::Union{Float64,Nothing} = nothing
+    scale_curvature::Union{Float64,Nothing} = nothing
+    grid_nan_mode::Union{Int,Nothing} = nothing
+    grid_nan_offset::Union{Float64,Nothing} = nothing
+    refpoint_u::Union{Float64,Nothing} = nothing
+    refpoint_u_fraction::Union{Float64,Nothing} = nothing
+    refpoint_u_offset::Union{Float64,Nothing} = nothing
+    refpoint_v::Union{Float64,Nothing} = nothing
+    refpoint_v_fraction::Union{Float64,Nothing} = nothing
+    refpoint_v_offset::Union{Float64,Nothing} = nothing
+    refpoint_x::Union{Float64,Nothing} = nothing
+    refpoint_y::Union{Float64,Nothing} = nothing
+    refpoint_z::Union{Float64,Nothing} = nothing
+    refpoint_phi::Union{Float64,Nothing} = nothing
+    refline_rotcenter_x::Union{Float64,Nothing} = nothing
+    refline_rotcenter_y::Union{Float64,Nothing} = nothing
+    refline_offset_x::Union{Float64,Nothing} = nothing
+    refline_offset_y::Union{Float64,Nothing} = nothing
+    refline_offset_z::Union{Float64,Nothing} = nothing
+    refline_offset_phi::Union{Float64,Nothing} = nothing
+end
+
+function parse_road_crg_mods(lines::Vector{String})
+    d = parse_keyvalues(lines)
+    go(k) = get(d, k, nothing)
+    goi(k) = (v = get(d, k, nothing); v === nothing ? nothing : Int(v))
+    return RoadCrgMods(;
+        scale_z_grid=go("SCALE_Z_GRID"), scale_slope=go("SCALE_SLOPE"), scale_banking=go("SCALE_BANKING"),
+        scale_length=go("SCALE_LENGTH"), scale_width=go("SCALE_WIDTH"), scale_curvature=go("SCALE_CURVATURE"),
+        grid_nan_mode=goi("GRID_NAN_MODE"), grid_nan_offset=go("GRID_NAN_OFFSET"),
+        refpoint_u=go("REFPOINT_U"), refpoint_u_fraction=go("REFPOINT_U_FRACTION"), refpoint_u_offset=go("REFPOINT_U_OFFSET"),
+        refpoint_v=go("REFPOINT_V"), refpoint_v_fraction=go("REFPOINT_V_FRACTION"), refpoint_v_offset=go("REFPOINT_V_OFFSET"),
+        refpoint_x=go("REFPOINT_X"), refpoint_y=go("REFPOINT_Y"), refpoint_z=go("REFPOINT_Z"), refpoint_phi=go("REFPOINT_PHI"),
+        refline_rotcenter_x=go("REFLINE_ROTCENTER_X"), refline_rotcenter_y=go("REFLINE_ROTCENTER_Y"),
+        refline_offset_x=go("REFLINE_OFFSET_X"), refline_offset_y=go("REFLINE_OFFSET_Y"),
+        refline_offset_z=go("REFLINE_OFFSET_Z"), refline_offset_phi=go("REFLINE_OFFSET_PHI"),
+    )
+end

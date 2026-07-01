@@ -50,6 +50,7 @@
         @test r.start_y == 0.0
         @test r.start_phi == 0.0
         @test r.end_x === nothing   # this file has no explicit end position
+        @test r.end_phi == 0.0   # present-but-zero must stay a real Float64, not become `nothing`
         @test r.v_right == -1.5
         @test r.v_left == 1.5
         @test r.start_slope == 0.0   # default when REFERENCE_LINE_START_S is absent

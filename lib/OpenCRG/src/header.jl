@@ -163,6 +163,16 @@ struct ReferenceLineParams
     end_banking::Union{Float64,Nothing}
 end
 
+"""
+    parse_road_crg(lines) -> ReferenceLineParams
+
+Parse `\$ROAD_CRG` section lines into a `ReferenceLineParams`. Deliberately
+does NOT extract `REFERENCE_LINE_START_LON`/`_LAT`/`_ALT` or the
+corresponding `_END_*` geodetic fields (present in some real files, e.g.
+`belgian_block.crg`) — placing the road on a real-world map is
+`\$ROAD_CRG_MPRO`'s job (geospatial projection metadata), which this
+package parses but never applies; see the design doc.
+"""
 function parse_road_crg(lines::Vector{String})
     d = parse_keyvalues(lines)
     g(k, default=0.0) = get(d, k, default)

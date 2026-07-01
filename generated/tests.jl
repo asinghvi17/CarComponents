@@ -18,5 +18,10 @@ end
 include("test_internals.jl")
 
 @testset "`CarComponents`" begin
+include("ExcitedWheelAssembly_test.jl")
+include("FlatRoadSteeredCar_test.jl")
+include("FullCar_test.jl")
 include("Hello_test.jl")
+include("SlippingWheel_test.jl")
+include("SteeringPosition_test.jl")
 end

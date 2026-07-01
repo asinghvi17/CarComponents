@@ -194,5 +194,10 @@ component.
   return System(Equation[], t, __vars, __params; name, metadata = __metadata)
 end
 
+include("ExcitedWheelAssembly_definition.jl")
+include("FlatRoadSteeredCar_definition.jl")
+include("FullCar_definition.jl")
 include("Hello_definition.jl")
+include("SlippingWheel_definition.jl")
+include("SteeringPosition_definition.jl")
 include("World_definition.jl")

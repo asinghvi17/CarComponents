@@ -36,6 +36,12 @@
         @test OpenCRG.v_axis(channels, r) == [-1.0, 0.0, 1.0]
     end
 
+    @testset "v_axis: index-form derives increment from v_right/v_left when not explicitly given" begin
+        r = OpenCRG.parse_road_crg(["LONG_SECTION_V_RIGHT = -1.0", "LONG_SECTION_V_LEFT = 1.0"])
+        channels = [OpenCRG.ChannelDef(:long_section, nothing, i) for i in 1:5]
+        @test OpenCRG.v_axis(channels, r) == [-1.0, -0.5, 0.0, 0.5, 1.0]
+    end
+
     @testset "v_axis: position-form reads channel v directly, including non-uniform spacing" begin
         r = OpenCRG.parse_road_crg(String[])
         channels = [OpenCRG.ChannelDef(:long_section, v, nothing) for v in [-1.0, 0.0, 0.3]]

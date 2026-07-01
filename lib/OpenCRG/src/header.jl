@@ -276,7 +276,7 @@ function v_axis(channels::Vector{ChannelDef}, refline::ReferenceLineParams)
         n = length(long_sections)
         inc = refline.v_increment
         if inc === nothing
-            n == 1 && error("LONG_SECTION_V_INCREMENT required when there is more than one long section")
+            n == 1 && error("LONG_SECTION_V_INCREMENT required when there is only one long section (spacing can't be derived from a single point)")
             inc = (refline.v_left - refline.v_right) / (n - 1)
         end
         return [refline.v_right + (c.index - 1) * inc for c in long_sections]

@@ -61,11 +61,15 @@ end
     section_marker(line) -> Union{String,Nothing}
 
 `nothing` if `line` isn't a section marker; otherwise the upper-cased
-keyword (empty string for a bare `\$` section-end marker).
+keyword (empty string for a bare `\$` section-end marker). A trailing
+inline (`!`) comment on the marker line itself — e.g. `\$ROAD_CRG ! crg road
+parameters`, seen in real vendored fixtures — is stripped first, the same
+way it already is for ordinary content lines; otherwise the comment text
+would leak into the keyword and no section would ever be found by name.
 """
 function section_marker(line::AbstractString)
     (isempty(line) || line[1] != '$') && return nothing
-    return uppercase(strip(line[2:end]))
+    return uppercase(strip(strip_inline_comment(line[2:end])))
 end
 
 """
@@ -95,4 +99,81 @@ function group_sections(header_lines::Vector{String})
         push!(sections[current], content)
     end
     return sections
+end
+
+"""
+    parse_keyvalues(lines) -> Dict{String,Float64}
+
+Parse `KEY = value` lines into a dict keyed by upper-cased key. Lines whose
+value doesn't parse as a float are skipped (see `parse_keyvalue_strings` for
+sections that mix numeric and string fields).
+"""
+function parse_keyvalues(lines::Vector{String})
+    dict = Dict{String,Float64}()
+    for line in lines
+        eq = findfirst('=', line)
+        eq === nothing && continue
+        key = uppercase(strip(line[1:prevind(line, eq)]))
+        v = tryparse(Float64, strip(line[nextind(line, eq):end]))
+        v === nothing || (dict[key] = v)
+    end
+    return dict
+end
+
+"""
+    parse_keyvalue_strings(lines) -> Dict{String,String}
+
+Like `parse_keyvalues` but keeps every value as a raw string.
+"""
+function parse_keyvalue_strings(lines::Vector{String})
+    dict = Dict{String,String}()
+    for line in lines
+        eq = findfirst('=', line)
+        eq === nothing && continue
+        key = uppercase(strip(line[1:prevind(line, eq)]))
+        dict[key] = strip(line[nextind(line, eq):end])
+    end
+    return dict
+end
+
+"""
+Reference-line and long-section parameters from `\$ROAD_CRG`. Optional
+fields (anchoring end position/heading/elevation, explicit constant
+slope/banking) are `Union{Float64,Nothing}`, defaulting to `nothing`
+except where the spec gives a numeric default (slope/banking default 0.0).
+"""
+struct ReferenceLineParams
+    start_u::Float64
+    end_u::Float64
+    increment::Float64
+    start_x::Float64
+    start_y::Float64
+    start_phi::Float64
+    end_x::Union{Float64,Nothing}
+    end_y::Union{Float64,Nothing}
+    end_phi::Union{Float64,Nothing}
+    start_z::Float64
+    end_z::Union{Float64,Nothing}
+    v_right::Union{Float64,Nothing}
+    v_left::Union{Float64,Nothing}
+    v_increment::Union{Float64,Nothing}
+    start_slope::Float64
+    end_slope::Union{Float64,Nothing}
+    start_banking::Float64
+    end_banking::Union{Float64,Nothing}
+end
+
+function parse_road_crg(lines::Vector{String})
+    d = parse_keyvalues(lines)
+    g(k, default=0.0) = get(d, k, default)
+    go(k) = get(d, k, nothing)
+    return ReferenceLineParams(
+        g("REFERENCE_LINE_START_U"), g("REFERENCE_LINE_END_U"), g("REFERENCE_LINE_INCREMENT"),
+        g("REFERENCE_LINE_START_X"), g("REFERENCE_LINE_START_Y"), g("REFERENCE_LINE_START_PHI"),
+        go("REFERENCE_LINE_END_X"), go("REFERENCE_LINE_END_Y"), go("REFERENCE_LINE_END_PHI"),
+        g("REFERENCE_LINE_START_Z"), go("REFERENCE_LINE_END_Z"),
+        go("LONG_SECTION_V_RIGHT"), go("LONG_SECTION_V_LEFT"), go("LONG_SECTION_V_INCREMENT"),
+        g("REFERENCE_LINE_START_S"), go("REFERENCE_LINE_END_S"),
+        g("REFERENCE_LINE_START_B"), go("REFERENCE_LINE_END_B"),
+    )
 end

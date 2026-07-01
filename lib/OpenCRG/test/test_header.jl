@@ -38,4 +38,27 @@
         sections = OpenCRG.group_sections(OpenCRG.split_lines(bytes[1:header_end-1]))
         @test all(k -> !all(==('$'), k), keys(sections))
     end
+
+    @testset "parse_road_crg on a real file" begin
+        bytes = read(joinpath(DATA, "handmade_curved_banked_sloped.crg"))
+        header_end = OpenCRG.find_header_end(bytes)
+        sections = OpenCRG.group_sections(OpenCRG.split_lines(bytes[1:header_end-1]))
+        r = OpenCRG.parse_road_crg(sections["ROAD_CRG"])
+        @test r.start_u == 0.0
+        @test r.end_u == 22.0
+        @test r.increment == 1.0
+        @test r.start_y == 0.0
+        @test r.start_phi == 0.0
+        @test r.end_x === nothing   # this file has no explicit end position
+        @test r.v_right == -1.5
+        @test r.v_left == 1.5
+        @test r.start_slope == 0.0   # default when REFERENCE_LINE_START_S is absent
+        @test r.start_banking == 0.0
+    end
+
+    @testset "parse_keyvalues / parse_keyvalue_strings" begin
+        @test OpenCRG.parse_keyvalues(["FOO = 1.5", "BAR=2"]) == Dict("FOO"=>1.5, "BAR"=>2.0)
+        @test OpenCRG.parse_keyvalue_strings(["PROJ_NM = UTM", "PROJ_ZONE = 32"]) ==
+            Dict("PROJ_NM"=>"UTM", "PROJ_ZONE"=>"32")
+    end
 end

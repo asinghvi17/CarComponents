@@ -1,0 +1,21 @@
+"""
+Flat-road steered version of the local `FullCar`.
+
+This extends `FullCar` instead of nesting it so the `World` component remains at
+the top level for MultibodyComponents.multibody. All four road-height ports are
+fixed to zero, and the two front steering inputs are driven by parameters.
+"""
+component FlatRoadSteeredCar
+  extends FullCar
+  "Front-right steering command [rad]"
+  parameter steer_angle_fr_cmd::Angle = 0.2
+  "Front-left steering command [rad]"
+  parameter steer_angle_fl_cmd::Angle = 0.2
+relations
+  road_height_fr = 0.0
+  road_height_fl = 0.0
+  road_height_br = 0.0
+  road_height_bl = 0.0
+  steer_angle_fr = steer_angle_fr_cmd
+  steer_angle_fl = steer_angle_fl_cmd
+end

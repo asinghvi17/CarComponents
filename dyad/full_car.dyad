@@ -1,0 +1,66 @@
+"""
+Local copy of the MultibodyComponents full car with external road-height ports.
+
+Each wheel has one RealOutput for contact x-position and one RealInput for road
+height at that wheel.
+"""
+component FullCar
+  world = MultibodyComponents.World() {^world}
+  front_axle = MultibodyComponents.BodyShape(m = ms / 4, r = [0, 0, -wheel_base], radius = 0.1, color = gray) {^front_axle}
+  back_front = MultibodyComponents.BodyShape(m = ms / 2, r = [-2, 0, 0], radius = 0.2, color = gray, orientation_state = MultibodyComponents.OrientationState.Euler(), statePriority = 1000, linearStatePriority = 1000) {^back_front}
+  back_axle = MultibodyComponents.BodyShape(m = ms / 4, r = [0, 0, -wheel_base], radius = 0.1, color = gray) {^back_axle}
+  excited_suspension_fr = ExcitedWheelAssembly(mirror = false, rod_radius = rod_radius, steering = true, angular_state = false, iscut = false, elastic_contact = wheel_elastic_contact, elastic_mount = chassis_bushings) {^excited_suspension_fr}
+  excited_suspension_fl = ExcitedWheelAssembly(mirror = true, rod_radius = rod_radius, steering = true, angular_state = false, iscut = false, elastic_contact = wheel_elastic_contact, elastic_mount = chassis_bushings) {^excited_suspension_fl}
+  excited_suspension_br = ExcitedWheelAssembly(mirror = false, rod_radius = rod_radius, steering = false, angular_state = false, iscut = false, elastic_contact = wheel_elastic_contact, elastic_mount = chassis_bushings) {^excited_suspension_br}
+  excited_suspension_bl = ExcitedWheelAssembly(mirror = true, rod_radius = rod_radius, steering = false, angular_state = false, iscut = false, elastic_contact = wheel_elastic_contact, elastic_mount = chassis_bushings) {^excited_suspension_bl}
+  "Front-right road height input"
+  road_height_fr = RealInput() {^road_height_fr}
+  "Front-left road height input"
+  road_height_fl = RealInput() {^road_height_fl}
+  "Back-right road height input"
+  road_height_br = RealInput() {^road_height_br}
+  "Back-left road height input"
+  road_height_bl = RealInput() {^road_height_bl}
+  "Front-right steering angle input"
+  steer_angle_fr = RealInput() {^steer_angle_fr}
+  "Front-left steering angle input"
+  steer_angle_fl = RealInput() {^steer_angle_fl}
+
+
+  "Front-right wheel contact x-position output"
+  wheel_position_fr = RealOutput() {^wheel_position_fr}
+  "Front-left wheel contact x-position output"
+  wheel_position_fl = RealOutput() {^wheel_position_fl}
+  "Back-right wheel contact x-position output"
+  wheel_position_br = RealOutput() {^wheel_position_br}
+  "Back-left wheel contact x-position output"
+  wheel_position_bl = RealOutput() {^wheel_position_bl}
+  "Wheelbase / track distance [m]"
+  parameter wheel_base::Real = 1
+  "Mass of the car [kg]"
+  parameter ms::Mass = 1500
+  "Radius of the rods"
+  parameter rod_radius::Real = 0.02
+  "Use compliant tire contact on all four corners."
+  structural parameter wheel_elastic_contact::Boolean = false
+  "Mount each suspension corner to the chassis through a compliant 6-DOF Bushing."
+  structural parameter chassis_bushings::Boolean = false
+  final parameter gray::Real[4] = [0.4, 0.4, 0.4, 0.3]
+relations
+  connect(back_front.frame_a, front_axle.frame_cm)
+  connect(back_front.frame_b, back_axle.frame_cm)
+  connect(front_axle.frame_a, excited_suspension_fr.chassis_frame)
+  connect(excited_suspension_fl.chassis_frame, front_axle.frame_b)
+  connect(excited_suspension_br.chassis_frame, back_axle.frame_a)
+  connect(excited_suspension_bl.chassis_frame, back_axle.frame_b)
+  excited_suspension_fr.road_height = road_height_fr
+  excited_suspension_fl.road_height = road_height_fl
+  excited_suspension_br.road_height = road_height_br
+  excited_suspension_bl.road_height = road_height_bl
+  excited_suspension_fr.steer_angle = steer_angle_fr
+  excited_suspension_fl.steer_angle = steer_angle_fl
+  wheel_position_fr = excited_suspension_fr.wheel_position
+  wheel_position_fl = excited_suspension_fl.wheel_position
+  wheel_position_br = excited_suspension_br.wheel_position
+  wheel_position_bl = excited_suspension_bl.wheel_position
+end

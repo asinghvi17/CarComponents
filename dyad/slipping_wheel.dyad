@@ -1,0 +1,72 @@
+"""
+Local copy of the MultibodyComponents slipping wheel wrapper.
+
+This keeps the wheel body and public ports local to CarComponents while reusing
+MultibodyComponents.SlipWheelJoint for the tire contact equations.
+"""
+component SlippingWheel
+  structural parameter iscut::Boolean = false
+  structural parameter surface::Boolean = false
+  "Use a compliant (elastic) normal contact (see SlipWheelJoint)"
+  structural parameter elastic_contact::Boolean = false
+  "Include the wheel's angular state (see SlipWheelJoint). Set false on an already-rooted axis."
+  structural parameter angular_state::Boolean = true
+  frame_a = Frame3D() {^frame_a}
+  surface_frame = Frame3D() if surface {^surface_frame}
+  wheeljoint = MultibodyComponents.SlipWheelJoint(final radius = radius, final width = width, final vAdhesion_min = vAdhesion_min, final vSlide_min = vSlide_min, final sAdhesion = sAdhesion, final sSlide = sSlide, final mu_A = mu_A, final mu_S = mu_S, iscut = iscut, surface = surface, angular_state = angular_state, elastic_contact = elastic_contact, c_z = c_z, d_z = d_z, render = render, color = color)
+  body = MultibodyComponents.Body(final m = m, final I_11 = I_long, final I_22 = I_long, final I_33 = I_axis, r_cm = [0, 0, 0], render = false)
+  "Render the wheel"
+  parameter render::Boolean = true
+  "Color of the wheel in animations"
+  parameter color::Real[4] = [1, 0, 0, 1]
+  "Radius of the wheel"
+  parameter radius::Length = 0.3
+  "Mass of the wheel"
+  parameter m::Mass = 1
+  "Moment of inertia of the wheel about its spin axis"
+  parameter I_axis::Inertia = 0.06
+  "Moment of inertia of the wheel perpendicular to it"
+  parameter I_long::Inertia = 0.12
+  "Width of the wheel"
+  parameter width::Real = 0.035
+  "Vertical contact stiffness (elastic_contact) [N/m]"
+  parameter c_z::Real = 250000
+  "Vertical contact damping (elastic_contact) [N*s/m]"
+  parameter d_z::Real = 500
+  "Minimum velocity for the peak of the adhesion curve"
+  parameter vAdhesion_min::Velocity = 0.05
+  "Minimum velocity for the start of the flat region of the slip curve"
+  parameter vSlide_min::Velocity = 0.15
+  "Adhesion slippage"
+  parameter sAdhesion::Real = 0.04
+  "Sliding slippage"
+  parameter sSlide::Real = 0.12
+  "Friction coefficient at the adhesion peak"
+  parameter mu_A::Real = 0.8
+  "Friction coefficient at full sliding"
+  parameter mu_S::Real = 0.6
+  "x-position of the wheel axis"
+  variable x::Length(statePriority = 20)
+  "z-position of the wheel axis"
+  variable z::Length(statePriority = 20)
+  "Angles that rotate the world frame into frame_a around the y-, z-, x-axis"
+  variable angles::Angle(statePriority = 30)[3] if angular_state
+  "Time derivatives of angles"
+  variable der_angles::AngularVelocity(statePriority = 30)[3] if angular_state
+relations
+  guess x = 0
+  guess z = 0
+  wheeljoint.x = x
+  wheeljoint.z = z
+  if angular_state
+    guess angles = [0, 0, 0]
+    guess der_angles = [0, 0, 0]
+    wheeljoint.angles = angles
+    der_angles = der(angles)
+  end
+  connect(body.frame_a, frame_a)
+  connect(wheeljoint.frame_a, frame_a)
+  if surface
+    connect(surface_frame, wheeljoint.surface_frame)
+  end
+end

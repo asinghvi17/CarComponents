@@ -1,0 +1,67 @@
+"""
+Local copy of the MultibodyComponents suspension wheel assembly.
+
+The original assembly generated the road height internally as a sine wave. This
+copy exposes the road height as a RealInput and exposes the wheel contact x
+position as a RealOutput.
+"""
+component ExcitedWheelAssembly
+  "Frame rigidly attached to the chassis"
+  chassis_frame = Frame3D() {^chassis_frame}
+  "Road/contact height for this wheel"
+  variable road_height::Length
+  "Wheel contact x-position"
+  variable wheel_position::Length
+  "Steering angle about the vertical axis"
+  variable steer_angle::Angle
+  suspension = MultibodyComponents.examples.suspension.QuarterCarSuspension(spring = spring, mirror = mirror, rod_radius = rod_radius, positive_branch = positive_branch) {^suspension}
+  steer_rotation = MultibodyComponents.Revolute(n = [0, 1, 0], n_nonzero = [false, true, false], statePriority = 100) if steering {^steer_rotation}
+  steering_position = SteeringPosition(f_crit = steering_f_crit) if steering {^steering_position}
+  wheel_rotation = MultibodyComponents.Revolute(n = n_wheel, n_nonzero = [false, false, true], statePriority = 100) {^wheel_rotation}
+  "Assembly branch (elbow up/down) of the suspension's analytic loop closure"
+  structural parameter positive_branch::Boolean = true
+  rotational_losses = RotationalComponents.Components.Damper(d = 0.1) {^rotational_losses}
+  wheel = SlippingWheel(radius = 0.2, m = 15, I_axis = 0.8, I_long = 0.8, iscut = iscut, angular_state = angular_state, elastic_contact = elastic_contact, surface = true) {^wheel}
+  structural parameter spring::Boolean = true
+  structural parameter mirror::Boolean = false
+  "Include a steering revolute between the suspension upright and wheel spin axis."
+  structural parameter steering::Boolean = false
+  "Critical frequency for the steering-angle position source [Hz]."
+  parameter steering_f_crit::Frequency = 20
+  "Cut the wheel's orientation loop with the rooted suspension axis."
+  structural parameter iscut::Boolean = true
+  "Include the wheel's angular state."
+  structural parameter angular_state::Boolean = true
+  "Use a compliant tire contact."
+  structural parameter elastic_contact::Boolean = false
+  "Mount the suspension to the chassis through a compliant 6-DOF Bushing."
+  structural parameter elastic_mount::Boolean = false
+  mount = MultibodyComponents.Bushing() if elastic_mount {^mount}
+  "Radius of the rods"
+  parameter rod_radius::Real = 0.02
+  final parameter dir::Real = ifelse(mirror, -1.0, 1.0)
+  final parameter n_wheel::Real[3] = [0, 0, dir]
+relations
+  wheel.surface_frame.r_0[2] = road_height
+  wheel.surface_frame.R = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+  wheel_position = wheel.surface_frame.r_0[1]
+  connect(wheel.frame_a, wheel_rotation.frame_b)
+  connect(rotational_losses.spline_a, wheel_rotation.axis)
+  connect(rotational_losses.spline_b, wheel_rotation.support)
+  if elastic_mount
+    connect(mount.frame_a, chassis_frame)
+    connect(mount.frame_b, suspension.chassis_frame)
+  else
+    connect(suspension.chassis_frame, chassis_frame)
+  end
+  if steering
+    connect(steer_rotation.frame_a, suspension.wheel_frame)
+    connect(wheel_rotation.frame_a, steer_rotation.frame_b)
+    connect(steering_position.spline, steer_rotation.axis)
+    connect(steering_position.support, steer_rotation.support)
+    steering_position.phi_ref = steer_angle
+  else
+    connect(wheel_rotation.frame_a, suspension.wheel_frame)
+    steer_angle = 0
+  end
+end

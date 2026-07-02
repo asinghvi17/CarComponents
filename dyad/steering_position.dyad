@@ -1,0 +1,35 @@
+"""
+Filtered rotational position source driven by an internal variable instead of a RealInput connector.
+
+Used for steering so the top-level car exposes only the intended steering input
+ports while the steering actuator smooths angle commands without differentiating
+the external input.
+"""
+component SteeringPosition
+  "Primary rotational shaft spline connector"
+  spline = Spline() {^spline}
+  "Support spline connector"
+  support = Spline() {^support}
+  "Reference angle of spline with respect to support"
+  variable phi_ref::Angle
+  "Absolute angle of the support spline"
+  variable phi_support::Angle
+  "Rotation angle of spline with respect to support"
+  variable phi::Angle
+  "Angular velocity of spline with respect to support"
+  variable w::AngularVelocity
+  "Angular acceleration of spline with respect to support"
+  variable a::AngularAcceleration
+  "Critical frequency of the steering command filter [Hz]"
+  parameter f_crit::Frequency = 20
+  final parameter a_f::Real = 1.3617
+  final parameter b_f::Real = 0.6180
+relations
+  support.phi = phi_support
+  support.tau = -spline.tau
+  phi = spline.phi - phi_support
+  initial phi = phi_ref
+  w = der(phi)
+  a = der(w)
+  a = ((phi_ref - phi) * 2 * π * f_crit - a_f * w) * (2 * π * f_crit / b_f)
+end

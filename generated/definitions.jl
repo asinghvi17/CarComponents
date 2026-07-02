@@ -194,12 +194,15 @@ component.
   return System(Equation[], t, __vars, __params; name, metadata = __metadata)
 end
 
+include("BSplineSurfaceInterpolation2D_definition.jl")
+include("BelgianRoadStraightLineCar_definition.jl")
 include("CirclePathSteeringController_definition.jl")
+include("ControlledBelgianRoadStraightLineCar_definition.jl")
 include("ControlledFlatRoadCar_definition.jl")
 include("ExcitedWheelAssembly_definition.jl")
 include("FlatRoadSteeredCar_definition.jl")
 include("FullCar_definition.jl")
-include("Hello_definition.jl")
 include("SlippingWheel_definition.jl")
 include("SteeringPosition_definition.jl")
-include("World_definition.jl")
+include("StraightLineSteeringController_definition.jl")
+include("TestBSplineSurfaceInterpolation2D_definition.jl")

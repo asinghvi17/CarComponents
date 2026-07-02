@@ -1,0 +1,50 @@
+type NDBSplineInterpolator2D = func(::Real, ::Real)::Real
+
+"""
+Scalar B-spline surface interpolation block backed by DataInterpolationsND.
+
+`X`, `Y`, and `Z` are structural matrices supplied by a data-loading helper or by
+literal/fake data. `X` and `Y` define a rectilinear control-point coordinate
+lattice; `Z` is the scalar control lattice. The structural `interpolator` is a
+callable `NDInterpolation` constructed once from those matrices and then called
+continuously in the model equations.
+"""
+component BSplineSurfaceInterpolation2D
+  "First interpolation coordinate"
+  x = RealInput() {^x}
+  "Second interpolation coordinate"
+  y = RealInput() {^y}
+  "Interpolated scalar value"
+  z = RealOutput() {^z}
+  "Control-point X-coordinate matrix"
+  structural parameter X::Real[:, :]
+  "Control-point Y-coordinate matrix"
+  structural parameter Y::Real[:, :]
+  "Scalar control-value matrix"
+  structural parameter Z::Real[:, :]
+  "B-spline degree along X"
+  structural parameter degree_x::Integer = 2
+  "B-spline degree along Y"
+  structural parameter degree_y::Integer = 2
+  "Maximum derivative order to precompute/evaluate"
+  structural parameter max_derivative_order_eval::Integer = 1
+  "Callable B-spline interpolator"
+  structural parameter interpolator::NDBSplineInterpolator2D = CarComponents.nd_bspline_interpolation_2d_from_matrices(X, Y, Z, degree_x, degree_y, max_derivative_order_eval)
+relations
+  z = interpolator(x, y)
+end
+
+"""
+Fake-data test harness for `BSplineSurfaceInterpolation2D`.
+"""
+component TestBSplineSurfaceInterpolation2D
+  structural parameter X::Real[:, :] = CarComponents.fake_bspline_surface_X()
+  structural parameter Y::Real[:, :] = CarComponents.fake_bspline_surface_Y()
+  structural parameter Z::Real[:, :] = CarComponents.fake_bspline_surface_Z()
+  parameter x_query::Real = 0.2
+  parameter y_query::Real = -0.4
+  interp = BSplineSurfaceInterpolation2D(X = X, Y = Y, Z = Z, degree_x = 2, degree_y = 2, max_derivative_order_eval = 1) {^interp}
+relations
+  interp.x = x_query
+  interp.y = y_query
+end

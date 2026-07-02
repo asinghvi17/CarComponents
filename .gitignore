@@ -7,3 +7,4 @@
 /agent_resources/
 /.migration-backups/
 /lib/LibOpenCRG/build/
+/scripts/data/

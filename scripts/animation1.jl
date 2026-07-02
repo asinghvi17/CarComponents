@@ -45,7 +45,7 @@ function simulate_controlled_car(; speed=0.8, tstop=30.0, save_dt=1/30, init_ste
         controlled_sys.world.render => true,
         controlled_sys.world.axis_radius => 0.01,
     ])
-    prob = ODEProblem(controlled_sys, defs, (0.0, tstop); optimize = :basic, saveat = save_dt)
+    prob = @time ODEProblem(controlled_sys, defs, (0.0, tstop); optimize = :basic, saveat = save_dt)
     solve(prob, Rodas5P(autodiff = AutoFiniteDiff()); initializealg = BrownFullBasicInit(), abstol=1e-6, reltol=1e-6, dtmax=0.02)
 end
 

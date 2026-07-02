@@ -9,11 +9,15 @@ if isfile(joinpath((@__DIR__) |> Base.dirname, "dyad", "experiments.jl"))
 end
 
 
+include("BSplineSurfaceInterpolation2D_experiment.jl")
+include("BelgianRoadStraightLineCar_experiment.jl")
 include("CirclePathSteeringController_experiment.jl")
+include("ControlledBelgianRoadStraightLineCar_experiment.jl")
 include("ControlledFlatRoadCar_experiment.jl")
 include("ExcitedWheelAssembly_experiment.jl")
 include("FlatRoadSteeredCar_experiment.jl")
 include("FullCar_experiment.jl")
-include("Hello_experiment.jl")
 include("SlippingWheel_experiment.jl")
 include("SteeringPosition_experiment.jl")
+include("StraightLineSteeringController_experiment.jl")
+include("TestBSplineSurfaceInterpolation2D_experiment.jl")

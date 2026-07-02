@@ -18,12 +18,16 @@ end
 include("test_internals.jl")
 
 @testset "`CarComponents`" begin
+include("BSplineSurfaceInterpolation2D_test.jl")
+include("BelgianRoadStraightLineCar_test.jl")
 include("CirclePathSteeringController_test.jl")
+include("ControlledBelgianRoadStraightLineCar_test.jl")
 include("ControlledFlatRoadCar_test.jl")
 include("ExcitedWheelAssembly_test.jl")
 include("FlatRoadSteeredCar_test.jl")
 include("FullCar_test.jl")
-include("Hello_test.jl")
 include("SlippingWheel_test.jl")
 include("SteeringPosition_test.jl")
+include("StraightLineSteeringController_test.jl")
+include("TestBSplineSurfaceInterpolation2D_test.jl")
 end

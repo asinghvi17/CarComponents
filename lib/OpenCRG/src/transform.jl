@@ -483,7 +483,16 @@ function apply_mods(data::CRGData)
         v0_idx === nothing && error("apply_mods: REFPOINT_X/Y/Z/PHI need the elevation at the default " *
               "anchor's v=0, which requires an exact v=0 declared long-section column -- this package " *
               "does not implement v-interpolation, and this file has no exact v=0 column.")
-        from_z = integrate_reference_z(r2, slope, length(phi))[1] + z[1, v0_idx]
+        # The reference-line component of the anchor's elevation is just
+        # `r2.start_z`, not `integrate_reference_z(r2, slope, length(phi))[1]`
+        # -- BOTH of integrate_reference_z's paths (the early-return AND the
+        # general path) set element 1 to `refline.start_z` unconditionally
+        # before any loop/blend logic runs (see its implementation), so that
+        # element is always exactly `r2.start_z`, regardless of slope/end_z.
+        # Calling the full O(nu) integration (including its forward/backward
+        # + blend double loop when end_z is set) just to read element 1 is
+        # wasted work; reading `r2.start_z` directly is identical.
+        from_z = r2.start_z + z[1, v0_idx]
         z_shift = something(mods.refpoint_z, 0.0) - from_z
     else
         rot_center = (something(mods.refline_rotcenter_x, r2.start_x), something(mods.refline_rotcenter_y, r2.start_y))

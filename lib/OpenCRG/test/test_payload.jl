@@ -105,3 +105,24 @@ end
         @test isfinite(m[1, 23])                 # first real elevation sample in row 0 (verified: channel 23 == 2.1214599609375)
     end
 end
+
+@testset "assemble_channels" begin
+    r = OpenCRG.parse_road_crg(["REFERENCE_LINE_START_PHI = 0.25"])
+    channels = [
+        OpenCRG.ChannelDef(:phi, nothing, nothing),
+        OpenCRG.ChannelDef(:banking, nothing, nothing),
+        OpenCRG.ChannelDef(:long_section, 1.0, nothing),   # declared out of ascending order on purpose
+        OpenCRG.ChannelDef(:long_section, -1.0, nothing),
+    ]
+    raw = [  # 2 rows x 4 channels, in DECLARATION order (phi, banking, v=1.0, v=-1.0)
+        99.0  0.1  10.0  20.0
+        0.5   0.2  11.0  21.0
+    ]
+    phi, banking, slope, v, z = OpenCRG.assemble_channels(raw, channels, r)
+    @test phi[1] == 0.25            # row-0 placeholder overwritten with REFERENCE_LINE_START_PHI...
+    @test phi[2] == 0.5             # ...but row 1 keeps its real stored value
+    @test banking == [0.1, 0.2]
+    @test slope === nothing
+    @test v == [-1.0, 1.0]          # sorted ascending, regardless of declaration order
+    @test z == [20.0 10.0; 21.0 11.0]   # columns reordered to match the sorted v
+end

@@ -116,3 +116,41 @@ function decode_binary_payload(payload::AbstractVector{UInt8}, format_code::Symb
     # into one *column* first — transpose to get our (nu, nchannels) convention.
     return Float64.(permutedims(reshape(collect(raw_be), nchannels, nu)))
 end
+
+"""
+    assemble_channels(raw, channels, refline) -> (phi, banking, slope, v, z)
+
+Split the raw `(nu, nchannels)` matrix into named channels per their role in
+`channels` (from `parse_kd_definition`). Long-section columns are sorted by
+ascending `v` — the position-defined form's declaration order isn't
+guaranteed ascending by spec, only observed as such in example files.
+Row 1's `phi` (1-based; "row 0" in the file/spec's 0-based convention) is
+always overwritten with `refline.start_phi`, regardless of what's stored —
+the reference implementation does this unconditionally, since that row's
+stored value is a documented placeholder, never actually used as an arrival
+heading.
+"""
+function assemble_channels(raw::Matrix{Float64}, channels::Vector{ChannelDef}, refline::ReferenceLineParams)
+    nu = size(raw, 1)
+    phi = fill(NaN, nu)
+    banking = nothing
+    slope = nothing
+    long_idxs = Int[]
+    for (i, c) in enumerate(channels)
+        if c.kind == :phi
+            phi = raw[:, i]
+        elseif c.kind == :banking
+            banking = raw[:, i]
+        elseif c.kind == :slope
+            slope = raw[:, i]
+        elseif c.kind == :long_section
+            push!(long_idxs, i)
+        end
+    end
+    v_all = v_axis(channels, refline)
+    order = sortperm(v_all)
+    v = v_all[order]
+    z = raw[:, long_idxs[order]]
+    isempty(phi) || (phi = copy(phi); phi[1] = refline.start_phi)
+    return phi, banking, slope, v, z
+end

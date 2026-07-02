@@ -53,3 +53,41 @@ function integrate_reference_line(refline::ReferenceLineParams, phi::Vector{Floa
     end
     return x, y
 end
+
+"""
+    integrate_reference_z(refline, slope, nu) -> z_ref
+
+1D analogue of `integrate_reference_line`, integrating longitudinal `slope`
+(dz/du) into a reference-line elevation profile. If there's no `slope`
+channel at all, `refline.start_slope` (default 0.0, from
+`REFERENCE_LINE_START_S`) is used as a constant slope for every step. If
+there's no slope channel AND `start_slope == 0.0`, the reference
+implementation (`calcRefLineZ`) skips this early — we represent that as a
+constant-zero vector, since `z`-grid values are always added on top
+downstream regardless (see `assemble_z_grid`).
+"""
+function integrate_reference_z(refline::ReferenceLineParams, slope::Union{Vector{Float64},Nothing}, nu::Int)
+    if slope === nothing && refline.start_slope == 0.0
+        return zeros(nu)
+    end
+    du = refline.increment
+    slope_at(i) = slope === nothing ? refline.start_slope : slope[i]
+    z_ref = Vector{Float64}(undef, nu)
+    z_ref[1] = refline.start_z
+    if refline.end_z === nothing
+        for i in 1:nu-1
+            z_ref[i+1] = z_ref[i] + slope_at(i+1) * du
+        end
+        return z_ref
+    end
+    zb = Vector{Float64}(undef, nu)
+    zb[nu] = refline.end_z
+    for i in nu:-1:2
+        zb[i-1] = zb[i] - slope_at(i) * du
+    end
+    for i in 1:nu-1
+        fraction = i / (nu - 1)
+        z_ref[i+1] = (1 - fraction) * (z_ref[i] + slope_at(i+1) * du) + fraction * zb[i+1]
+    end
+    return z_ref
+end

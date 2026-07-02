@@ -1,0 +1,6 @@
+[deps]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+LibOpenCRG = "415980e8-35ba-4db9-9363-7da5222f1119"
+
+[sources]
+LibOpenCRG = {path = "../LibOpenCRG"}

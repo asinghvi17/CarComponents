@@ -2,13 +2,8 @@ name = "OpenCRG"
 uuid = "40a2bf50-15af-408a-8ff9-1cb7955b13ad"
 version = "0.1.0"
 authors = ["Anshul Singhvi <anshulsinghvi@gmail.com>"]
+description = "A pure-Julia reader for the OpenCRG road data file format"
+license = "MIT"
 
-[extras]
-Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
-LibOpenCRG = "415980e8-35ba-4db9-9363-7da5222f1119"
-
-[targets]
-test = ["Test", "LibOpenCRG"]
-
-[sources]
-LibOpenCRG = {path = "../LibOpenCRG"}
+[workspace]
+projects = ["test"]

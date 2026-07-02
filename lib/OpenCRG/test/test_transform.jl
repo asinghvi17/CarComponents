@@ -135,3 +135,79 @@ end
         @test za ≈ zb atol=1e-12
     end
 end
+
+@testset "lateral_offset_grid" begin
+    @testset "straight line: pure perpendicular offset" begin
+        x = [0.0, 1.0, 2.0, 3.0]   # straight along +x
+        y = [0.0, 0.0, 0.0, 0.0]
+        v = [-1.0, 0.0, 1.0]
+        X, Y = OpenCRG.lateral_offset_grid(x, y, v)
+        @test X ≈ repeat(x, 1, 3)                     # offsetting perpendicular to +x doesn't move x
+        @test Y ≈ [-1.0 0.0 1.0; -1.0 0.0 1.0; -1.0 0.0 1.0; -1.0 0.0 1.0] || Y ≈ -[-1.0 0.0 1.0; -1.0 0.0 1.0; -1.0 0.0 1.0; -1.0 0.0 1.0]
+        # (whichever sign convention `perp` uses; either is "correct" in isolation —
+        # Task 17's cross-validation against the C library is the real arbiter.)
+    end
+
+    @testset "shape sanity: v=0 reproduces the reference line exactly" begin
+        x = [0.0, 1.0, 2.5, 2.5]   # includes a kink, to exercise the miter-normal interior formula
+        y = [0.0, 0.5, 1.0, 2.0]
+        X, Y = OpenCRG.lateral_offset_grid(x, y, [0.0])
+        @test X[:, 1] ≈ x
+        @test Y[:, 1] ≈ y
+    end
+
+    @testset "interior miter join at nonzero v: a real, non-degenerate kink" begin
+        # Neither test above actually exercises the interior miter-join formula's
+        # correctness at a nonzero v. The "v=0" test above cannot: at v=0,
+        # X[i,j] = x[i] + 0*offset_dir[i][1] == x[i] identically for ANY finite
+        # offset_dir[i] whatsoever, however wrong -- v=0 multiplies the bisector
+        # term away before it can affect the result (confirmed: offset_dir[2] for
+        # that test's kink is actually (-0.372, 0.930), a nontrivial value that
+        # the v=0 test never looks at). And the "straight line" test has no
+        # interior kink at all (every segment shares the same direction, so
+        # `chord` at each interior node equals `seg` itself and the whole
+        # bisect-and-rescale computation degenerates to exactly each segment's
+        # own normal) -- it can't distinguish a correct miter join from a wrong
+        # one either. So this test suite, as given, never actually checks the
+        # interior formula (`chord`/`n1`/`denom`/rescale) at a kink with v != 0.
+        #
+        # This closes that gap with a 3-node right-angle turn at NONZERO v.
+        # Segment lengths are DELIBERATELY UNEQUAL (2, then 1) -- not just for
+        # realism, but because equal segment lengths make the chord bisector
+        # symmetric between the two flanking segments (n1 . n12[i] happens to
+        # equal n1 . n12[i-1]), which would hide a bug that rescales against the
+        # wrong (preceding, not following) neighbor's normal. Confirmed by
+        # injecting that exact off-by-one bug (denom computed from n12[i-1]
+        # instead of n12[i]) into a scratch copy of this function: with equal
+        # segment lengths, buggy and correct offset_dir[2] were identical; with
+        # the unequal lengths used below, they differ sharply ((-0.5, 1.0) buggy
+        # vs (-1.0, 2.0) correct). A second scratch variant -- omitting the
+        # rescale-by-denom entirely and using the raw unit bisector instead --
+        # was also confirmed to diverge sharply from the values asserted below.
+        #
+        # Nodes: (0,0) -[length-2 segment, heading +x]-> (2,0)
+        #             -[length-1 segment, heading +y]-> (2,1)   (a 90-degree left turn)
+        # seg[1] = (1,0), seg[2] = (0,1); n12[1] = perp(seg[1]) = (0,1) and
+        # n12[2] = perp(seg[2]) = (-1,0) are what boundary nodes 1 and 3 fall
+        # back to directly. For the interior node 2:
+        #   chord = normalize(x[3]-x[1], y[3]-y[1]) = normalize(2,1) = (2/sqrt(5), 1/sqrt(5))
+        #   n1 = perp(chord) = (-1/sqrt(5), 2/sqrt(5))
+        #   denom = n1 . n12[2] = (-1/sqrt(5))*(-1) + (2/sqrt(5))*0 = 1/sqrt(5)
+        #   offset_dir[2] = n1 / denom = (-1, 2)        -- the sqrt(5) cancels exactly
+        # Independently verified two ways: by hand (above) and in an isolated
+        # Julia scratch session executing this exact chord/n1/denom formula,
+        # both agreeing bit-for-bit (no floating-point residue at all, since
+        # everything here cancels to exact integers).
+        x = [0.0, 2.0, 2.0]
+        y = [0.0, 0.0, 1.0]
+        v = [-1.0, 1.0, 2.0]
+        X, Y = OpenCRG.lateral_offset_grid(x, y, v)
+
+        # offset_dir = [(0,1), (-1,2), (-1,0)]; X[i,j] = x[i] + v[j]*offset_dir[i][1], similarly for Y.
+        # (These literals pin the CURRENT perp(dx,dy)=(-dy,dx) convention -- if a
+        # later task flips that convention, these expected values would need
+        # negating relative to x/y, same as the straight-line test above.)
+        @test X ≈ [0.0 0.0 0.0; 3.0 1.0 0.0; 3.0 1.0 0.0]
+        @test Y ≈ [-1.0 1.0 2.0; -2.0 2.0 4.0; 1.0 1.0 1.0]
+    end
+end

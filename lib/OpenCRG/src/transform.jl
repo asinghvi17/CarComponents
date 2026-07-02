@@ -100,3 +100,62 @@ function integrate_reference_z(refline::ReferenceLineParams, slope::Union{Vector
     end
     return z_ref
 end
+
+"""
+    lateral_offset_grid(x, y, v) -> (X, Y)
+
+Offset the reference line `(x,y)` laterally by each `v` to build the full
+`(nu, nv)` world-frame grid, replicating the reference implementation's
+"miter normal" scheme (`crgEvaluv2xy.c`) evaluated exactly at grid nodes.
+
+At each INTERIOR node `i`, the true C function (queried continuously between
+nodes) computes an offset point by bisecting the incoming/outgoing segment
+directions via the chord skipping over node `i` (from node `i-1` directly to
+node `i+1`), then rescales that bisector so its projection onto the
+FOLLOWING segment's own normal reproduces the true perpendicular distance
+`v` (a standard "miter join" construction — this is what keeps offset
+polylines from gapping/overlapping at kinks in the reference line). At
+`u = u_i` exactly, only this one node's offset point is used (no
+interpolation between the segment's two endpoints is needed, since
+evaluating exactly at a grid node has interpolation fraction 0). The first
+and last nodes have no bisector partner and fall back to their single
+adjacent segment's own normal.
+
+Perpendicular convention here: `perp(dx, dy) = (-dy, dx)` (90° CCW). If
+Task 17's full-grid cross-validation shows every `v` mismatched by a sign
+flip (i.e. `X`/`Y` match with `v` negated), that's this convention being
+mirrored relative to the C library — fix by negating `perp`'s output here,
+not by negating `v` itself, since `v`'s sign also matters for the banking
+term in `assemble_z_grid` (Task 14) and must stay consistent with the
+parsed `v` axis.
+"""
+function lateral_offset_grid(x::Vector{Float64}, y::Vector{Float64}, v::Vector{Float64})
+    nu = length(x)
+    perp(d) = (-d[2], d[1])
+    normalize2(d) = (n = hypot(d[1], d[2]); (d[1]/n, d[2]/n))
+
+    seg = [normalize2((x[i+1]-x[i], y[i+1]-y[i])) for i in 1:nu-1]
+    n12 = perp.(seg)
+
+    offset_dir = Vector{Tuple{Float64,Float64}}(undef, nu)
+    if nu == 1
+        offset_dir[1] = (0.0, 1.0)   # degenerate single-node "line"; arbitrary but consistent
+    else
+        offset_dir[1] = n12[1]
+        offset_dir[nu] = n12[nu-1]
+        for i in 2:nu-1
+            chord = normalize2((x[i+1]-x[i-1], y[i+1]-y[i-1]))
+            n1 = perp(chord)
+            denom = n1[1]*n12[i][1] + n1[2]*n12[i][2]
+            offset_dir[i] = (n1[1]/denom, n1[2]/denom)
+        end
+    end
+
+    nv = length(v)
+    X, Y = Matrix{Float64}(undef, nu, nv), Matrix{Float64}(undef, nu, nv)
+    for i in 1:nu, j in 1:nv
+        X[i,j] = x[i] + v[j] * offset_dir[i][1]
+        Y[i,j] = y[i] + v[j] * offset_dir[i][2]
+    end
+    return X, Y
+end

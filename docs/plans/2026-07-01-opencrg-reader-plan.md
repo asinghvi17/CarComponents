@@ -1382,9 +1382,41 @@ Save this as `lib/OpenCRG/test/data/synthetic_end_anchored.crg` (5 rows: u = 0,1
         @test x[1] ≈ 0.0
         @test x[end] ≈ 4.4          # true end position is hit exactly
         # 0.4m of error over 4 segments, redistributed with fraction i/(n-1):
-        # x[i+1] = (1-frac)*(x[i]+du) + frac*xb[i+1]; verify node 3 (index 3, u=2) by hand:
-        @test x[3] ≈ 2.1333333333333333 atol=1e-12
+        # x[i+1] = (1-frac)*(x[i]+du) + frac*xb[i+1]; the recursion chains off
+        # the PRIOR step's already-blended x[i], not a separate clean forward
+        # trajectory, so this compounds rather than being simple linear
+        # interpolation between 0 and 4.4. Verified independently three ways
+        # (by hand, in an isolated scratch session, and via read_crg end-to-end):
+        # xb = [0.4, 1.4, 2.4, 3.4, 4.4]; x[2]=1.1; x[3] = 0.5*(1.1+1) + 0.5*2.4 = 2.25.
+        @test x ≈ [0.0, 1.1, 2.25, 3.3625, 4.4] atol=1e-12   # full vector, not just node 3 -- x[2]/x[4] compound into x[3], but assert them all directly too
         @test all(y .≈ 0.0)
+    end
+
+    @testset "arrival-heading convention is the same in both the forward and backward passes" begin
+        # phi≡0 everywhere structurally cannot distinguish phi[i] from phi[i+1]
+        # (cos(0)=1, sin(0)=0 regardless of index), so a backward-pass index
+        # bug would slip through the tests above undetected. Use a genuinely
+        # curving phi instead: integrate it forward-only (Case A), then re-run
+        # Case B anchored to Case A's own true endpoint -- if the backward
+        # pass reads the wrong index, this will NOT reproduce Case A exactly.
+        r = OpenCRG.parse_road_crg(["REFERENCE_LINE_INCREMENT=1.0"])
+        phi = [0.0, 0.1, 0.3, 0.2, -0.1, 0.4]   # phi[1] unused; deliberately non-constant and non-monotonic
+        xa, ya = OpenCRG.integrate_reference_line(r, phi)
+
+        r_anchored = OpenCRG.ReferenceLineParams(
+            r.start_u, r.end_u, r.increment, r.start_x, r.start_y, r.start_phi,
+            xa[end], ya[end], r.end_phi, r.start_z, r.end_z,
+            r.v_right, r.v_left, r.v_increment, r.start_slope, r.end_slope, r.start_banking, r.end_banking,
+        )
+        xb, yb = OpenCRG.integrate_reference_line(r_anchored, phi)
+        @test xa ≈ xb atol=1e-12
+        @test ya ≈ yb atol=1e-12
+    end
+
+    @testset "exactly one of end_x/end_y set is an error" begin
+        r = OpenCRG.parse_road_crg(["REFERENCE_LINE_INCREMENT=1.0", "REFERENCE_LINE_END_X=4.4"])
+        @test r.end_y === nothing   # sanity: END_Y really wasn't declared
+        @test_throws Exception OpenCRG.integrate_reference_line(r, [0.0, 0.0, 0.0])
     end
 end
 ```
@@ -1409,20 +1441,32 @@ Integrate heading `phi` (`phi[i]` = heading of the segment ARRIVING at node
 already substituted in by `assemble_channels`) into world-frame positions,
 replicating `calcRefLine` in the reference implementation's `crgLoader.c`:
 
-- No end position given (`refline.end_x === nothing`): simple forward Euler,
-  `x[i+1] = x[i] + du*cos(phi[i+1])`.
+- No end position given (`refline.end_x === nothing` AND `refline.end_y ===
+  nothing`): simple forward Euler, `x[i+1] = x[i] + du*cos(phi[i+1])`.
 - Both `end_x`/`end_y` given: integrate backward from the true end point
   using the same arrival-phi convention, then blend the forward-continuation
   value with the backward-derived value linearly across the whole line
   (fraction 0 at the start, 1 at the end) — redistributing integration error
   instead of leaving it all as a discontinuity at the very end.
+- Exactly one of `end_x`/`end_y` given: an error, not a silent fallback to
+  Case A — you can't sensibly blend only one of two coordinates, and a real
+  file with only one of the pair set is far more likely to indicate a
+  parsing bug or corruption than genuine spec-compliant data (the ASAM
+  example files always declare both or neither).
+
+`nu == 1` degenerates safely in both cases: the loop ranges become empty
+(`1:0`), so only the start point is ever produced, and `end_x`/`end_y` are
+never read.
 """
 function integrate_reference_line(refline::ReferenceLineParams, phi::Vector{Float64})
     nu = length(phi)
     du = refline.increment
     x, y = Vector{Float64}(undef, nu), Vector{Float64}(undef, nu)
     x[1], y[1] = refline.start_x, refline.start_y
-    if refline.end_x === nothing || refline.end_y === nothing
+    has_end_x, has_end_y = refline.end_x !== nothing, refline.end_y !== nothing
+    xor(has_end_x, has_end_y) &&
+        error("REFERENCE_LINE_END_X/END_Y must both be set or both be absent, not just one")
+    if !has_end_x && !has_end_y
         for i in 1:nu-1
             x[i+1] = x[i] + du * cos(phi[i+1])
             y[i+1] = y[i] + du * sin(phi[i+1])
@@ -1475,6 +1519,16 @@ Append to `lib/OpenCRG/test/test_transform.jl`:
         @test OpenCRG.integrate_reference_z(r, nothing, 4) == zeros(4)
     end
 
+    @testset "no slope channel, NONZERO start_z: early-out to constant start_z, not zero" begin
+        # Caught by code review, cross-checked against the real compiled C
+        # reference library (crgEvalz.c's fallback: crgData->channelRefZ.info.first,
+        # i.e. REFERENCE_LINE_START_Z, not zero, when the ref-z channel is invalid).
+        # A flat road at a nonzero elevation must report that elevation everywhere,
+        # not silently flatten to 0.0.
+        r = OpenCRG.parse_road_crg(["REFERENCE_LINE_INCREMENT=1.0", "REFERENCE_LINE_START_Z=5.0"])
+        @test OpenCRG.integrate_reference_z(r, nothing, 4) == fill(5.0, 4)
+    end
+
     @testset "constant slope (no channel, nonzero REFERENCE_LINE_START_S)" begin
         r = OpenCRG.parse_road_crg(["REFERENCE_LINE_INCREMENT=1.0", "REFERENCE_LINE_START_S=0.1"])
         z_ref = OpenCRG.integrate_reference_z(r, nothing, 4)
@@ -1486,6 +1540,56 @@ Append to `lib/OpenCRG/test/test_transform.jl`:
         slope = [0.0, 0.1, 0.2, 0.3]   # slope[1] unused, matching the phi convention
         z_ref = OpenCRG.integrate_reference_z(r, slope, 4)
         @test z_ref ≈ [1.0, 1.1, 1.3, 1.6]
+    end
+
+    @testset "Case B: end-anchored, non-constant slope so the blend is actually checkable" begin
+        # The plan as originally written has NO test at all for the
+        # refline.end_z !== nothing (backward-integrate-then-blend) branch. Worse,
+        # the most "natural" fixture to bolt on by analogy with Task 11 would reuse
+        # a constant slope (or slope===nothing with nonzero start_slope) -- but that
+        # is exactly Task 11's phi≡0 blind spot in a new costume: slope_at(i) and
+        # slope_at(i-1) (or any other off-by-one) return the SAME constant
+        # regardless of index, so a backward-pass index bug is structurally
+        # undetectable. Confirmed by injecting a `slope_at(i-1)` typo (should be
+        # `slope_at(i)`) into a scratch copy of `integrate_reference_z`: with
+        # constant slope, correct and buggy outputs were bit-for-bit identical;
+        # with the non-constant slope used below, they diverge sharply (e.g.
+        # z_ref[2] 0.2 correct vs 0.25 buggy). Hence: non-constant slope here.
+        r = OpenCRG.parse_road_crg(["REFERENCE_LINE_INCREMENT=1.0", "REFERENCE_LINE_START_Z=0.0", "REFERENCE_LINE_END_Z=0.9"])
+        slope = [NaN, 0.1, 0.2, -0.1, 0.3]   # slope[1]=NaN: never read: a stray read would poison the whole result
+        z_ref = OpenCRG.integrate_reference_z(r, slope, 5)
+        @test z_ref[1] ≈ 0.0
+        @test z_ref[end] ≈ 0.9   # true end elevation is hit exactly, same as Task 11's Case B for (x,y)
+        # Backward pass (du=1): zb[5]=0.9, zb[4]=0.9-0.3=0.6, zb[3]=0.6-(-0.1)=0.7,
+        # zb[2]=0.7-0.2=0.5, zb[1]=0.5-0.1=0.4 -> zb=[0.4, 0.5, 0.7, 0.6, 0.9].
+        # Forward/blend recursion (chains off the already-blended z_ref[i], same
+        # compounding structure as Task 11's (x,y) case, NOT plain linear
+        # interpolation between 0.0 and 0.9):
+        #   i=1, frac=1/4: z_ref[2] = 0.75*(0.0+0.1)  + 0.25*0.5 = 0.075  + 0.125 = 0.2
+        #   i=2, frac=2/4: z_ref[3] = 0.5*(0.2+0.2)   + 0.5*0.7  = 0.2    + 0.35  = 0.55
+        #   i=3, frac=3/4: z_ref[4] = 0.25*(0.55-0.1) + 0.75*0.6 = 0.1125 + 0.45  = 0.5625
+        # Independently verified three ways: by hand, in an isolated Julia scratch
+        # session, and via the deliberate bug-injection check described above.
+        @test z_ref ≈ [0.0, 0.2, 0.55, 0.5625, 0.9] atol=1e-12
+    end
+
+    @testset "arrival-slope convention is the same in both the forward and backward passes" begin
+        # Same round-trip idea as Task 11's analogous phi test: integrate a
+        # genuinely non-constant, non-monotonic slope forward-only (no end_z) to
+        # get a true endpoint, then re-run anchored to that exact endpoint -- if
+        # the backward pass reads the wrong slope index, this will NOT reproduce
+        # the forward-only result.
+        r = OpenCRG.parse_road_crg(["REFERENCE_LINE_INCREMENT=1.0", "REFERENCE_LINE_START_Z=2.0"])
+        slope = [NaN, 0.05, -0.2, 0.15, 0.4, -0.05]   # slope[1] unused; non-constant and non-monotonic
+        za = OpenCRG.integrate_reference_z(r, slope, 6)
+
+        r_anchored = OpenCRG.ReferenceLineParams(
+            r.start_u, r.end_u, r.increment, r.start_x, r.start_y, r.start_phi,
+            r.end_x, r.end_y, r.end_phi, r.start_z, za[end],
+            r.v_right, r.v_left, r.v_increment, r.start_slope, r.end_slope, r.start_banking, r.end_banking,
+        )
+        zb = OpenCRG.integrate_reference_z(r_anchored, slope, 6)
+        @test za ≈ zb atol=1e-12
     end
 end
 ```
@@ -1508,13 +1612,22 @@ Append to `lib/OpenCRG/src/transform.jl`:
 channel at all, `refline.start_slope` (default 0.0, from
 `REFERENCE_LINE_START_S`) is used as a constant slope for every step. If
 there's no slope channel AND `start_slope == 0.0`, the reference
-implementation (`calcRefLineZ`) skips this early — we represent that as a
-constant-zero vector, since `z`-grid values are always added on top
-downstream regardless (see `assemble_z_grid`).
+implementation (`calcRefLineZ`) skips integration early — but this does NOT
+mean elevation is zero everywhere. Cross-checked against the real compiled
+C reference library (`crgEvaluv2z`/`crgEvalz.c`): when the ref-z channel is
+invalid, it falls back to adding `channelRefZ.info.first` (i.e.
+`REFERENCE_LINE_START_Z`) at every point, not zero. So a flat road at a
+nonzero elevation (`start_z` set, no slope) must produce a constant
+`start_z` vector, not a constant-zero one — `end_z` is irrelevant in this
+branch (confirmed against the oracle: it's ignored even when set), since
+there's no slope data to integrate toward it anyway.
+
+`nu == 1` degenerates safely (only `z_ref[1] = refline.start_z` is ever
+produced; `end_z` is unused), matching `integrate_reference_line`.
 """
 function integrate_reference_z(refline::ReferenceLineParams, slope::Union{Vector{Float64},Nothing}, nu::Int)
     if slope === nothing && refline.start_slope == 0.0
-        return zeros(nu)
+        return fill(refline.start_z, nu)
     end
     du = refline.increment
     slope_at(i) = slope === nothing ? refline.start_slope : slope[i]
@@ -1585,6 +1698,22 @@ Append to `lib/OpenCRG/test/test_transform.jl`:
         @test X[:, 1] ≈ x
         @test Y[:, 1] ≈ y
     end
+
+    @testset "exact U-turn: known unguarded degeneracy, pinned not fixed (see docstring, Task 17)" begin
+        # Equal-length segments meeting at an exact 180-degree hairpin send the
+        # miter rescale's denominator (and normalize2's chord length) to zero,
+        # producing NaN with no warning -- see the docstring paragraph added
+        # after Task 13's review for why this isn't purely theoretical (it's
+        # the DEFAULT segment-length configuration from integrate_reference_line's
+        # non-end-anchored branch). Deliberately NOT fixed here -- Task 17 will
+        # port the C reference's exact epsilon-guarded fallback. This test exists
+        # so a future change to this behavior is a deliberate decision, not a
+        # silent regression.
+        x = [0.0, 1.0, 0.0]
+        y = [0.0, 0.0, 0.0]
+        X, Y = OpenCRG.lateral_offset_grid(x, y, [1.0])
+        @test isnan(X[2, 1])
+    end
 end
 ```
 
@@ -1623,6 +1752,25 @@ mirrored relative to the C library — fix by negating `perp`'s output here,
 not by negating `v` itself, since `v`'s sign also matters for the banking
 term in `assemble_z_grid` (Task 14) and must stay consistent with the
 parsed `v` axis.
+
+Known unguarded degeneracy (found during Task 13's review, NOT fixed here —
+deferred to Task 17): an exact U-turn / coincident-endpoints kink (node
+`i-1` and node `i+1` at the same point, so the "chord skipping over node i"
+has zero length) sends `normalize2` to `0/0` and the miter rescale's
+`denom` toward zero, producing `NaN`/`Inf` in `offset_dir[i]` with no
+warning. This is NOT a purely theoretical corner case: `integrate_reference_line`'s
+non-end-anchored branch gives every segment exactly the same length `du` by
+construction, so an exact-180°-hairpin reference line — plausible for a
+pathological/adversarial input, if not a typical recorded track — hits this
+degenerate equal-length configuration by default, not by contrived
+construction. The reference implementation this task transcribes already
+guards against exactly this: `crgEvaluv2xy.c`'s `normalizeVector2` (~line
+197) returns its input unchanged rather than dividing when
+`length < 1.0e-10`, and its rescale step (~line 149) checks
+`fabs(dotProd) > 1.0e-10` before dividing, falling back to the un-rescaled
+normal otherwise. Task 17 should port those exact thresholds/fallbacks
+(cross-validatable directly against the compiled C oracle via FFI) rather
+than deriving new ones from scratch.
 """
 function lateral_offset_grid(x::Vector{Float64}, y::Vector{Float64}, v::Vector{Float64})
     nu = length(x)
@@ -1876,8 +2024,23 @@ end
 """
     crgDataSetModifiersApply(dataSetId) -> Nothing
 
-Apply all currently-set modifiers to the data set once, then clear them
-from the modifier list.
+Apply all currently-set modifiers to the data set. Modifiers are **not**
+cleared afterward (verified empirically during Task 15's review: calling
+this twice in a row on the same data set with no intervening
+`crgDataSetModifierRemoveAll` applies the same offset twice) -- call
+`crgDataSetModifierRemoveAll` first if you need a clean slate before the
+next `...Apply` call, e.g. when reusing a `dataSetId` across multiple
+modifier scenarios.
+
+Also note: a freshly-created data set (`crgLoaderReadFile`) already has
+`dCrgModRefPointX/Y/Z/Phi` and `dCrgModGridNaNMode` seeded with default
+values (`crgOptionSetDefaultModifiers`, called automatically on data-set
+creation). Critically, `crgDataApplyTransformations` checks whether ANY
+`dCrgModRefPoint*` entry is present at all (regardless of its value) BEFORE
+checking `dCrgModRefLineOffset*` -- so these seeded defaults silently
+short-circuit `dCrgModRefLineOffsetX/Y/Z/Phi` modifiers entirely unless
+cleared first. Call `crgDataSetModifierRemoveAll(dataSetId)` immediately
+after loading, before setting any `RefLineOffset*` modifiers.
 """
 function crgDataSetModifiersApply(dataSetId::Integer)
     ccall((:crgDataSetModifiersApply, LIBOPENCRG_PATH), Cvoid, (Cint,), dataSetId)
@@ -1906,6 +2069,102 @@ git commit -m "LibOpenCRG: bind modifier-setting functions for MODS cross-valida
 - Modify: `lib/OpenCRG/test/test_transform.jl`
 - Modify: `lib/OpenCRG/Project.toml` (no change needed — `LibOpenCRG` already added as a test dep in Task 1)
 
+**Post-implementation correction, found during the Tasks 16+17 review — supersedes the
+`REFPOINT_*` handling in this section's `apply_mods` code below, read before touching that
+code again:** The shipped `apply_mods` (by the time you're reading this, Tasks 16 and 17 were
+implemented together in one sitting, per this section's own Step 2 note) computes the
+`REFPOINT_*` anchor point using `x0, y0 = integrate_reference_line(r2, phi)` at a `u`-derived
+index — which is only exactly correct when the anchor is at `v = 0` (the reference line
+itself) and `u` lands exactly on an existing grid node. The review independently
+cross-validated this against the real C library (`crgDataApplyTransformations` in
+`crgMgr.c`, ~lines 804-928) and found two real, silent, wrong-answer gaps, plus a third
+found on closer re-reading of the same C function:
+
+1. **`REFPOINT_V`/`REFPOINT_V_FRACTION` (nonzero `v`) are silently wrong.** The C reference
+   evaluates the "from" point via `crgDataEvaluv2xy`/`crgDataEvaluv2z` at the FULL `(uPos,
+   vPos)` query point (`crgMgr.c:875-877`) — a genuine continuous point-interpolation
+   (u-interpolation of the reference line, PLUS v-offset/interpolation of the z-grid), which
+   this package's design doc explicitly excludes ("no per-point Newton-iteration inversion...
+   forward-only... no interpolation/evaluation API at all"). Confirmed empirically: setting
+   `REFPOINT_V=1.0` (all else zero) gives the current Julia code `x=0,y=0` but the real C
+   oracle `x≈0, y≈-1.0` — a full 1m silent position error, not a crash.
+2. **`REFPOINT_U_OFFSET`/`REFPOINT_V_OFFSET` alone (without their `_FRACTION` sibling) are
+   NOT independent triggers in the C reference** — `crgDataApplyTransformations` only ever
+   reads `dCrgModRefPointUOffset`/`VOffset` from INSIDE the `UFrac`/`VFrac` branches
+   (`crgMgr.c:846,865`); setting only the offset never sets `applyXform`. The shipped
+   `has_refpoint` check incorrectly includes `:refpoint_u_offset`/`:refpoint_v_offset` as
+   standalone triggers (`transform.jl`, the `has_refpoint = any(...)` line) — confirmed
+   empirically: `refpoint_u_offset=5.0` plus `refline_offset_x=100.0` takes the (wrong)
+   REFPOINT branch in Julia (`new_start_x≈-4.998`) vs. the C oracle's correct fallthrough to
+   `REFLINE_OFFSET_X` (`100.0`).
+3. **`mods.refpoint_z`'s VALUE is parsed and checked for presence (it correctly triggers
+   `has_refpoint`) but is never actually read as a target elsewhere in the function** — grep
+   the shipped code for `refpoint_z` outside the `has_refpoint` tuple; it doesn't appear.
+   `new_start_z`/`new_end_z` only ever apply `mods.refline_offset_z` (used unconditionally,
+   in both branches), never `mods.refpoint_z`. This is a latent gap the review's empirical
+   probes didn't happen to exercise (they tested `REFPOINT_X/Y/PHI`, not `REFPOINT_Z`), found
+   by re-reading the shipped code directly against `crgMgr.c:824-828`.
+
+**Required fix, scoped deliberately to avoid building a general point-interpolator this
+package's design doc excludes:**
+
+- Fix #2 (the cheap, unambiguous one): remove `:refpoint_u_offset`/`:refpoint_v_offset` as
+  standalone entries in `has_refpoint`'s trigger tuple — they must only matter alongside
+  `:refpoint_u_fraction`/`:refpoint_v_fraction` respectively, exactly like the C reference.
+- For #1 and #3: **narrow the supported `REFPOINT_*` surface** to exactly the case that's
+  exactly computable without a point-interpolator — `REFPOINT_X`/`REFPOINT_Y`/`REFPOINT_Z`/
+  `REFPOINT_PHI`, anchored at the IMPLICIT DEFAULT point (`u = start_u`, i.e. grid node 1;
+  `v = 0`, which exactly reproduces the reference line for `x,y` with no interpolation
+  needed — confirmed via Task 13's own "v=0 reproduces the reference line exactly" test — and
+  for `z`, `from_z = integrate_reference_z(r2, slope, nu)[1]`, i.e. node 1's reference-line
+  elevation; BEFORE trusting that formula, cross-validate a `REFPOINT_Z`-only case against the
+  real C oracle to confirm the z-grid's own value at `v=0` doesn't need folding in too — if
+  cross-validation shows a mismatch, that's evidence it does, and the right fix is then to
+  fold in `data.z`'s v=0-nearest column value if one exists, or fall into the "error" case
+  below if it requires genuine v-interpolation). Fix `mods.refpoint_z`'s target value to
+  actually flow into `new_start_z`/`new_end_z`, mirroring how `refpoint_x`/`refpoint_y`
+  already flow into `translation`.
+- If `REFPOINT_U`, `REFPOINT_U_FRACTION`, `REFPOINT_V`, or `REFPOINT_V_FRACTION` is set to
+  ANY value (not just a nonzero-resulting one — don't special-case "happens to equal the
+  default", that's fragile, floating-point-exactness-dependent behavior), `apply_mods` should
+  `error(...)` with a message explaining this package's grid-only, non-interpolating design
+  can't support pinning an arbitrary continuous `(u,v)` point, unlike `REFPOINT_X/Y/Z/PHI` at
+  the default anchor. This is the SAME "fail loudly on a class of input this package can't
+  correctly handle" philosophy already established at Task 9 (zero `:long_section` channels)
+  and Task 11 (exactly one of `end_x`/`end_y`) — better than silently shipping wrong geometry.
+  This also makes issue #3 from Task 16+17's own review (staleness of `r2.end_u` under
+  `SCALE_LENGTH` + `REFPOINT_U_FRACTION`) moot, since the `REFPOINT_U_FRACTION` code path that
+  exposed it no longer exists.
+- Add tests: a `REFPOINT_Z`-only cross-validated test (resolving the v=0 z-grid-contribution
+  question above empirically); an error test for each of `REFPOINT_U`/`_FRACTION`/`V`/`_FRACTION`
+  being set; a regression test confirming `refpoint_u_offset`/`refpoint_v_offset` ALONE
+  (without their `_FRACTION` sibling) does NOT take the REFPOINT branch (falls through to
+  `REFLINE_OFFSET_*` instead, matching the C reference).
+- Update `apply_mods`'s docstring to describe this scope boundary explicitly, so a future
+  reader doesn't assume full `REFPOINT_*` support exists.
+
+Also, unrelated to `REFPOINT_*`: the review found `lib/OpenCRG/test/test_crossvalidate.jl`'s
+fixture loop never includes `belgian_block.crg` (the only large, real-world, Float32-binary
+fixture) despite it being confirmed to cross-validate cleanly (0 mismatches) when tried by
+hand — add it to the `for fname in [...]` loop (Task 17's file, not Task 16's, but cheapest to
+fix in the same pass).
+
+**Known forward dependency, found during Task 14's review — read before writing Step 1:**
+`assemble_z_grid` (Task 14)'s banking-clamp code, and its test suite, both document/rely on
+an invariant: `CRGData.v` is always sorted ascending and its elements exactly match
+`CRGData.z`'s columns, one-to-one (guaranteed today by `assemble_channels`'s `sortperm`,
+Task 9 — `v` and `z`'s columns are permuted together, so they can't desync). That
+invariant is what makes the banking clamp in `assemble_z_grid` a provable no-op in every
+real call path *so far*. `road_surface_grid` calls `apply_mods` FIRST (`d = apply_mods(data)`)
+and only then threads `d.v`/`d.z` into `assemble_z_grid` — so if this task's `\$ROAD_CRG_MODS`
+handling ever touches `v` (e.g. a width scale/offset mod) in a way that could reorder it or
+desync it from `z`'s columns, Task 14's documented invariant would silently break with no
+existing test to catch it. Before finishing this task: confirm `apply_mods` preserves
+`v`-ascending-and-matches-`z`-columns (add a regression test if it touches `v` at all), and
+if it doesn't/can't be preserved, revisit `assemble_z_grid`'s docstring (`lib/OpenCRG/src/transform.jl`)
+to soften the "no-op in every real call path" claim accordingly rather than leaving it
+overclaimed.
+
 **Step 1: Write the failing test**
 
 Append to `lib/OpenCRG/test/test_transform.jl`:
@@ -1930,6 +2189,13 @@ using LibOpenCRG
         u, v, X, Y, Z = OpenCRG.road_surface_grid(data_with_mods)
 
         dsId = crgLoaderReadFile(path)
+        # crgLoaderReadFile seeds dCrgModRefPointX/Y/Z/Phi defaults (via
+        # crgOptionSetDefaultModifiers), and crgDataApplyTransformations checks
+        # for ANY dCrgModRefPoint* entry BEFORE dCrgModRefLineOffset*, silently
+        # short-circuiting the offset modifiers below if not cleared first --
+        # this exact bug was found and fixed in Task 15's own test; see the
+        # crgDataSetModifiersApply docstring in lib/LibOpenCRG/src/LibOpenCRG.jl.
+        @test crgDataSetModifierRemoveAll(dsId) != 0
         @test crgDataSetModifierSetDouble(dsId, LibOpenCRG.dCrgModRefLineOffsetPhi, 1.57) != 0
         @test crgDataSetModifierSetDouble(dsId, LibOpenCRG.dCrgModRefLineOffsetX, 100.0) != 0
         @test crgDataSetModifierSetDouble(dsId, LibOpenCRG.dCrgModRefLineOffsetY, 50.0) != 0
@@ -2071,7 +2337,14 @@ Note the added `new_end_x/new_end_y/new_end_phi` handling (rotating/translating 
 
 **Step 4: Run test to verify it passes**
 
-Run: `julia --project=lib/OpenCRG -e 'using Test, OpenCRG, LibOpenCRG; const DATA=joinpath("lib/OpenCRG/test","data"); include("lib/OpenCRG/test/test_transform.jl")'`
+The naive `julia --project=lib/OpenCRG -e 'using Test, OpenCRG, LibOpenCRG; ...'` invocation
+used for earlier tasks does NOT work once `LibOpenCRG` is involved — confirmed by the Tasks
+16+17 review (reproduced the exact failure): `LibOpenCRG` is a test-only dependency, declared
+via `Project.toml`'s `[extras]`/`[sources]`, which only resolves inside `Pkg.test()`'s
+sandboxed test environment, never under plain `--project=` activation. Use:
+`julia --project=lib/OpenCRG -e 'using Pkg; Pkg.test()'` instead — this runs the FULL suite
+(`runtests.jl`, all test files), not just this one, but it's the only invocation that
+actually works once a test file needs `LibOpenCRG`.
 Expected: PASS. If the cross-validation sub-testset fails, the mismatch is almost certainly in the rotate/translate math above (sign of `rot_angle`, or `rot_center`/`translation` mixed up) — re-read `crgDataApplyTransformations` in the vendored `lib/LibOpenCRG/csrc/src/crgMgr.c` at the specific point of disagreement rather than guessing a fix.
 
 **Step 5: Commit**
@@ -2089,6 +2362,48 @@ git commit -m "OpenCRG: apply \$ROAD_CRG_MODS (scale chain + rotate/translate)"
 - Modify: `lib/OpenCRG/src/transform.jl`
 - Create: `lib/OpenCRG/test/test_crossvalidate.jl`
 - Modify: `lib/OpenCRG/Project.toml` (no change — already done in Task 1)
+
+**Known fixture gap, found during Task 12's review — read before writing Step 1:**
+The cross-validation loop below only covers `handmade_curved_minimalist.crg` and
+`handmade_curved_banked_sloped.crg`, so the end-anchored/backward-integration
+branches of both `integrate_reference_line` (Task 11) and `integrate_reference_z`
+(Task 12) never get cross-validated against the real C oracle here — only by
+this package's own pure-Julia unit tests. Worse, Task 11's
+`lib/OpenCRG/test/data/synthetic_end_anchored.crg` (the one fixture that DOES
+exercise that branch) declares only one long-section column
+(`LONG_SECTION_V_RIGHT = LONG_SECTION_V_LEFT = 0.0`), and the real reference C
+library (`lib/LibOpenCRG/csrc/src/crgLoader.c`, around line 1269) rejects any
+file with fewer than 2 long-section columns as "no or insufficient long section
+data" — confirmed by actually attempting to load it through
+`crgLoaderReadFile`, which fails. So as written, this task's cross-validation
+would silently never touch the exact code paths a prior review flagged as
+having previously shipped a real, silent, Critical bug (see Task 12's `git log`
+for "no channels declared"/`fill(refline.start_z, nu)` fix). Before finishing
+this task: either widen `synthetic_end_anchored.crg` to ≥2 long-section columns
+(so it can load in the real C library) and add it to the `for fname in [...]`
+loop below, or create a new sibling fixture specifically for this purpose —
+either way, confirm it actually loads via `crgLoaderReadFile` (`status/dsId !=
+0` and `crgCheck(dsId) != 0`) before trusting any cross-validation result from
+it.
+
+**Known robustness gap, found during Task 13's review — also read before writing Step 1:**
+`lateral_offset_grid` (Task 13) has an unguarded degeneracy at an exact
+U-turn / coincident-endpoints kink: `normalize2` and the miter rescale's
+`denom` both go to zero, producing silent `NaN`/`Inf` in `offset_dir[i]`.
+This is pinned (not fixed) by a dedicated regression test in Task 13's test
+suite (`"exact U-turn: known unguarded degeneracy..."`) — it currently
+asserts `isnan(...)`, i.e. it documents the gap rather than closing it. The
+reference C library this whole package transcribes already guards against
+this (`crgEvaluv2xy.c`: `normalizeVector2` ~line 197 returns unchanged
+rather than dividing when `length < 1.0e-10`; the rescale step ~line 149
+checks `fabs(dotProd) > 1.0e-10` before dividing, falling back to the
+un-rescaled normal otherwise). While implementing this task's cross-validation,
+consider adding a hairpin-turn case to the loop (a synthetic fixture, since
+neither vendored real fixture has one) specifically to see whether the
+oracle's graceful fallback vs. this package's current `NaN` shows up as a
+mismatch — and if so, port the C reference's exact thresholds/fallback into
+`lateral_offset_grid` (updating Task 13's pinning test's expectation
+accordingly) rather than leaving it as a known gap indefinitely.
 
 **Step 1: Write the failing test**
 
@@ -2141,7 +2456,11 @@ end
 
 **Step 2: Run test to verify it fails**
 
-Run: `julia --project=lib/OpenCRG -e 'using Test, OpenCRG, LibOpenCRG; const DATA=joinpath("lib/OpenCRG/test","data"); include("lib/OpenCRG/test/test_crossvalidate.jl")'`
+The naive `julia --project=lib/OpenCRG -e '... LibOpenCRG ...'` invocation used for earlier
+tasks does NOT work here — `LibOpenCRG` is a test-only `[extras]`/`[sources]` dependency that
+only resolves inside `Pkg.test()`'s sandboxed environment (confirmed by the Tasks 16+17
+review, which reproduced the exact failure of the naive form). Use
+`julia --project=lib/OpenCRG -e 'using Pkg; Pkg.test()'` instead, which runs the full suite.
 Expected: FAIL — `road_surface_grid` not defined.
 
 **Step 3: Write the implementation**
@@ -2173,12 +2492,12 @@ Also update `lib/OpenCRG/Project.toml`'s `[deps]`... actually no change needed t
 
 **Step 4: Run test to verify it passes**
 
-Run: `julia --project=lib/OpenCRG -e 'using Test, OpenCRG, LibOpenCRG; const DATA=joinpath("lib/OpenCRG/test","data"); include("lib/OpenCRG/test/test_crossvalidate.jl")'`
+Run: `julia --project=lib/OpenCRG -e 'using Pkg; Pkg.test()'` (see Step 2's note on why the naive `--project=` form doesn't work once `LibOpenCRG` is involved).
 
 If this fails with every point systematically off by a constant sign flip in `Y` (or `X`) relative to `v`, that confirms the `perp` convention in Task 13 is mirrored relative to the C library — negate `perp`'s output in `lateral_offset_grid` and rerun. If it fails only at the FIRST or LAST `u` node (not throughout), that points at the boundary fallback (`offset_dir[1]`/`offset_dir[nu]`) needing a different formula than "just the adjacent segment's own normal" — re-read `crgEvaluv2xy.c`'s boundary handling directly (`lib/LibOpenCRG/csrc/src/crgEvaluv2xy.c`) at that point rather than guessing further. If it fails throughout but by varying (not constant) amounts, suspect the miter-normal formula's algebra itself (re-derive from the `crgEvaluv2xy.c` source directly, checking the `a`/`b`/`n1`/`n2`/`n12` construction line by line against what's implemented here).
 
-Once green, also run the FULL suite for the whole package: `julia --project=lib/OpenCRG lib/OpenCRG/test/runtests.jl`
-Expected: all testsets across all files pass.
+Once green, also run the FULL suite for the whole package again to confirm: `julia --project=lib/OpenCRG -e 'using Pkg; Pkg.test()'`
+Expected: all testsets across all files pass (confirmed in practice: 1166/1166, the first fully clean run since Task 1 — `test_crossvalidate.jl` was the one perpetually-missing file until this task).
 
 **Step 5: Commit**
 

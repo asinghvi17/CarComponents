@@ -194,6 +194,8 @@ component.
   return System(Equation[], t, __vars, __params; name, metadata = __metadata)
 end
 
+include("CirclePathSteeringController_definition.jl")
+include("ControlledFlatRoadCar_definition.jl")
 include("ExcitedWheelAssembly_definition.jl")
 include("FlatRoadSteeredCar_definition.jl")
 include("FullCar_definition.jl")

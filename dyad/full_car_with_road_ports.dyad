@@ -244,6 +244,97 @@ relations
 end
 
 
+
+"""
+Continuous steering controller for a circular path in the world X-Z plane.
+
+The controller is intentionally causal and separate from the car plant: it reads
+vehicle position/heading and outputs a front steering command. World Y is vertical
+and is not used by this path controller.
+"""
+component CirclePathSteeringController
+  "Vehicle x-position in the world X-Z path plane"
+  x = RealInput() {^x}
+  "Vehicle z-position in the world X-Z path plane"
+  z = RealInput() {^z}
+  "Vehicle heading angle in the X-Z plane, where 0 points along +X and positive points toward +Z"
+  heading = RealInput() {^heading}
+  "Front steering command [rad]"
+  steer_angle = RealOutput() {^steer_angle}
+  "Circle center x-coordinate"
+  parameter center_x::Real = 0.0
+  "Circle center z-coordinate"
+  parameter center_z::Real = -6.0
+  "Circle radius in the X-Z plane"
+  parameter radius::Real = 6.0
+  "Effective wheelbase used by the steering law"
+  parameter wheel_base::Real = 1.0
+  "Smooth steering saturation limit [rad]"
+  parameter steer_limit::Angle = 0.6
+  "Path direction: -1 for clockwise, +1 for counter-clockwise"
+  parameter direction::Real = -1.0
+  "Heading-error feedback gain"
+  parameter heading_gain::Real = 1.0
+  "Radial-error feedback gain"
+  parameter radial_gain::Real = 0.15
+  "Small positive distance used to avoid division by zero"
+  parameter eps_distance::Real = 1e-6
+  variable theta::Angle
+  variable radial_distance::Real
+  variable radial_error::Real
+  variable desired_heading::Angle
+  variable heading_error::Angle
+  variable feedforward_steer::Angle
+  variable raw_steer::Angle
+relations
+  theta = atan(z - center_z, x - center_x)
+  radial_distance = sqrt((x - center_x) * (x - center_x) + (z - center_z) * (z - center_z) + eps_distance * eps_distance)
+  radial_error = radial_distance - radius
+  desired_heading = theta + direction * π / 2
+  heading_error = atan(sin(desired_heading - heading), cos(desired_heading - heading))
+  feedforward_steer = atan(-direction * wheel_base / radius)
+  raw_steer = feedforward_steer - heading_gain * heading_error - direction * radial_gain * radial_error
+  steer_angle = steer_limit * tanh(raw_steer / steer_limit)
+end
+
+"""
+Flat-road full car with a separate circular-path steering controller.
+
+This extends `FullCar` rather than nesting it so the multibody `World` remains at
+the top level. The inherited `FullCar` equations are the car+road plant, while
+`controller` is a separate causal subsystem coupled only through measured chassis
+pose and commanded steering angle.
+"""
+component ControlledFlatRoadCar
+  extends FullCar
+  controller = CirclePathSteeringController(center_x = path_center_x, center_z = path_center_z, radius = path_radius, wheel_base = wheel_base, steer_limit = steer_limit, direction = path_direction, heading_gain = heading_gain, radial_gain = radial_gain) {^controller}
+  "Circle center x-coordinate"
+  parameter path_center_x::Real = 0.0
+  "Circle center z-coordinate"
+  parameter path_center_z::Real = -6.0
+  "Circle radius in the world X-Z plane"
+  parameter path_radius::Real = 6.0
+  "Smooth steering saturation limit [rad]"
+  parameter steer_limit::Angle = 0.6
+  "Path direction: -1 for clockwise, +1 for counter-clockwise"
+  parameter path_direction::Real = -1.0
+  "Heading-error feedback gain"
+  parameter heading_gain::Real = 1.0
+  "Radial-error feedback gain"
+  parameter radial_gain::Real = 0.15
+relations
+  road_height_fr = 0.0
+  road_height_fl = 0.0
+  road_height_br = 0.0
+  road_height_bl = 0.0
+  controller.x = back_front.body.r_0[1]
+  controller.z = back_front.body.r_0[3]
+  controller.heading = -back_front.body.phi[2]
+  steer_angle_fr = controller.steer_angle
+  steer_angle_fl = controller.steer_angle
+end
+
+
 """
 Flat-road steered version of the local `FullCar`.
 

@@ -54,6 +54,68 @@
         @test size(m) == (23, 10)    # nu is DERIVED from payload size: 46 lines / 2 lines-per-row = 23
         @test all(isfinite, m[2:end, 1])   # phi is defined for every row except row 1 (index 1 in Julia)
     end
+
+    # LDFI closes a whole-plan-final-review coverage gap: despite being one of
+    # the 4 "must parse" encodings, grep confirmed :LDFI was never actually
+    # decoded by any test before this fix -- it only ever appeared in the
+    # ASCII_FIELD_WIDTH/FIELDS_PER_RECORD Dict literals above and docstring
+    # prose. Unlike LRFI/KRBI's real vendored fixtures, no upstream example
+    # file uses LDFI, so (mirroring the existing KDBI precedent immediately
+    # below in the binary section, "no upstream fixture covers this") these
+    # are synthetic, built directly against decode_ascii_payload rather than
+    # a full read_crg round-trip -- cheaper, and matches this file's existing
+    # unit-test granularity for the other format lacking a real fixture.
+    # Fields are built with `lpad(..., 20)` rather than hand-typed fixed-width
+    # literals -- LDFI's field width (20) is exactly double LRFI's (10), and
+    # hand-counting spaces is exactly the kind of silent-misalignment mistake
+    # the LRFI tests above warn about; lpad guarantees the width by
+    # construction instead of by careful counting.
+    @testset "decode_ascii_payload: exact multiple of per_record, no line wrap (4 channels at LDFI)" begin
+        vals = [-1.0, 0.0, 1.0, 2.5]
+        line = join(lpad(string(v), 20) for v in vals)
+        @test length(line) == 80   # 4 fields x 20 chars, sanity-checking the synthesized fixture itself
+        m = OpenCRG.decode_ascii_payload([line], :LDFI, 4)
+        @test size(m) == (1, 4)
+        @test m[1, :] == vals
+    end
+
+    @testset "decode_ascii_payload: row-wrapping, 6 channels at LDFI (4/record)" begin
+        # 6 channels at 4 fields/record wraps onto 2 lines (4 then 2) -- the
+        # LDFI-specific analogue of the LRFI row-wrapping test above, using a
+        # DIFFERENT per-record count (4, not 8) so this can't silently pass by
+        # accidentally reusing LRFI's per-record constant.
+        row = [10.0, 11.0, 12.0, 13.0, 14.0, 15.0]
+        line1 = join(lpad(string(v), 20) for v in row[1:4])
+        line2 = join(lpad(string(v), 20) for v in row[5:6])
+        m = OpenCRG.decode_ascii_payload([line1, line2], :LDFI, 6)
+        @test size(m) == (1, 6)
+        @test m[1, :] == row
+    end
+
+    @testset "decode_ascii_payload: **unused** literal at LDFI's actual 20-char field width" begin
+        # Task 7's docstring (decode_ascii_field, above) flags this as subtle:
+        # the bare 10-char literal "**unused**" structurally can never
+        # string-equal a raw 20-char LDFI field, so it must fall through to
+        # the numeric-parse path and decode to NaN, not 0.0 -- unlike LRFI,
+        # where the same literal (exactly 10 chars) matches directly and
+        # decodes to 0.0. The existing decode_ascii_field unit test above
+        # (`"**unused**" * " "^10`) already pins this at the field-decoding
+        # level in isolation; this test additionally exercises it through
+        # decode_ascii_payload's REAL fixed-width slicing at nchannels=4,
+        # confirming the 20-char slice taken from a realistic multi-field
+        # line lands on the right offsets -- i.e. that neighboring numeric
+        # fields decode correctly (proving the NaN field didn't desync the
+        # per-field width bookkeeping), not just that the literal alone
+        # decodes to NaN when handed to decode_ascii_field directly.
+        unused_field = "**unused**" * " "^10
+        @test length(unused_field) == 20
+        line = lpad("3.5", 20) * unused_field * lpad("-2.25", 20) * lpad("100.0", 20)
+        m = OpenCRG.decode_ascii_payload([line], :LDFI, 4)
+        @test m[1, 1] == 3.5
+        @test isnan(m[1, 2])          # **unused**, padded to LDFI width -- NaN, not 0.0
+        @test m[1, 3] == -2.25        # confirms field 2's NaN didn't shift field 3's offset
+        @test m[1, 4] == 100.0        # ...nor field 4's
+    end
 end
 
 @testset "binary payload decoding" begin

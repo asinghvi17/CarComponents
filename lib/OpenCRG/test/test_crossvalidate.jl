@@ -92,8 +92,15 @@ end
     #     to the reference line's own point -- which is what motivated porting
     #     the epsilon guards into lateral_offset_grid (see its docstring) and
     #     updating Task 13's pinning test accordingly.
+    #
+    #   - belgian_block.crg: the only large, real-world, Float32-binary
+    #     fixture in this test suite -- found during the Tasks 16+17 review
+    #     to already cross-validate cleanly (0 mismatches) but to have been
+    #     missing from this loop the whole time. Added here (unrelated to
+    #     the REFPOINT_* fix that's the rest of this change, but cheap to
+    #     include in the same pass).
     for fname in ["handmade_curved_minimalist.crg", "handmade_curved_banked_sloped.crg",
-                  "synthetic_end_anchored_2col.crg", "synthetic_hairpin.crg"]
+                  "synthetic_end_anchored_2col.crg", "synthetic_hairpin.crg", "belgian_block.crg"]
         @testset "$fname" begin
             mismatches = crossvalidate_grid(joinpath(DATA, fname))
             @test mismatches == 0

@@ -323,20 +323,69 @@ Key insight that keeps this simple: rotating every `phi` value by a
 constant angle rotates the *shape* of the eventually-integrated reference
 line by that same angle, because `(cos(a+θ), sin(a+θ)) = R(θ)·(cos a, sin a)`
 — so only `refline.start_x/start_y` (rotated about the pivot, then
-translated) and `phi` itself need to change here. There's no need to
-integrate the reference line inside this function at all, EXCEPT for the
-`REFPOINT_*` case, which needs to evaluate the CURRENT (pre-transform)
-position at a specific `(u,v)` to know what point is being pinned down.
+translated) and `phi` itself need to change here. This holds for the
+`REFPOINT_*` case too: the only anchor point this function supports is the
+implicit default one (`u = start_u`, `v = 0` — see the scope-boundary note
+below), which is exactly `refline.start_x/start_y/start_phi` by
+construction. There's no need to call `integrate_reference_line` inside
+this function at all.
 
-`REFPOINT_*` (if ANY such field is set) takes over the rotate+translate
-step entirely, ignoring `REFLINE_OFFSET_*`/`REFLINE_ROTCENTER_*` completely
-— they do not compose, matching `crgDataApplyTransformations` in `crgMgr.c`:
-`applyXform` is set to 1 by any of the `dCrgModRefPoint{X,Y,Z,Phi,U,UFrac,V,VFrac}`
-checks, and the whole `REFLINE_OFFSET_*`/`REFLINE_ROTCENTER_*` block is
-gated behind `if (!applyXform)` — i.e. it runs at all only when NONE of
-those `REFPOINT_*` fields were present. Confirmed directly against that
-source (`lib/LibOpenCRG/csrc/src/crgMgr.c`, `crgDataApplyTransformations`,
+`REFPOINT_*` (if any of `REFPOINT_X/Y/Z/PHI` is set) takes over the
+rotate+translate step entirely, ignoring `REFLINE_OFFSET_*`/
+`REFLINE_ROTCENTER_*` completely — they do not compose, matching
+`crgDataApplyTransformations` in `crgMgr.c`: `applyXform` is set to 1 by
+any of the `dCrgModRefPoint{X,Y,Z,Phi,U,UFrac,V,VFrac}` checks, and the
+whole `REFLINE_OFFSET_*`/`REFLINE_ROTCENTER_*` block is gated behind
+`if (!applyXform)` — i.e. it runs at all only when NONE of those
+`REFPOINT_*` fields were present. Confirmed directly against that source
+(`lib/LibOpenCRG/csrc/src/crgMgr.c`, `crgDataApplyTransformations`,
 ~lines 804-922) rather than assumed.
+
+**Scope boundary, narrowed during the Tasks 16+17 review (read before
+assuming full `REFPOINT_*` support exists):** the `(u,v)` point a
+`REFPOINT_*` modifier pins down is, in general, an arbitrary CONTINUOUS
+point on the road surface — the C reference resolves it via genuine
+point-interpolation (`crgDataEvaluv2xy`/`crgDataEvaluv2z` at the full query
+`(uPos, vPos)`), which this package's design doc explicitly excludes from
+scope (no per-point Newton-iteration inversion, no interpolation/evaluation
+API, forward-only batched grid transform only). Only the ONE anchor that's
+exactly computable without an interpolator is supported here: the IMPLICIT
+DEFAULT point, `u = start_u` (grid node 1), `v = 0` — at which `x, y, phi`
+exactly reproduce `start_x/start_y/start_phi` with no interpolation needed
+(confirmed by Task 13's "v=0 reproduces the reference line exactly" test).
+If `REFPOINT_U`, `REFPOINT_U_FRACTION`, `REFPOINT_V`, or
+`REFPOINT_V_FRACTION` is set to ANY value at all, this function `error`s
+rather than silently pinning the wrong point — matching this plan's
+established "fail loudly instead of silently corrupting geometry"
+philosophy (Task 9's zero-`:long_section`-channels error, Task 11's
+exactly-one-of-`end_x`/`end_y` error). Relatedly, `REFPOINT_U_OFFSET`/
+`REFPOINT_V_OFFSET` are only ever meaningful alongside their `_FRACTION`
+sibling in the C reference (`crgMgr.c:846,865`, read only from inside the
+`UFrac`/`VFrac` branches); since that whole path now always errors, they
+are simply inert here, and setting either one ALONE (without its
+`_FRACTION` sibling) correctly falls through to `REFLINE_OFFSET_*`/
+`REFLINE_ROTCENTER_*` instead of wrongly taking the `REFPOINT_*` branch — a
+real, silent, cross-validated bug in the first cut of this function (see
+`test_transform.jl`'s regression test for this exact scenario).
+
+`REFPOINT_Z`'s target elevation, like `REFPOINT_X`/`REFPOINT_Y`, is applied
+even when it isn't itself set (defaulting to `0.0`, mirroring
+`crgDataApplyTransformations`'s zero-initialized `toXYZ[2]`) — so setting
+only `REFPOINT_X`/`REFPOINT_Y`/`REFPOINT_PHI` still shifts the reference
+line's elevation profile so the anchor's elevation becomes `0.0`, unless
+`REFPOINT_Z` says otherwise. The anchor's CURRENT elevation (`from_z`) is
+NOT just `z_ref[1]` (the reference-line elevation channel alone) —
+cross-validating a `REFPOINT_Z`-only scenario against the real C oracle
+(`test_transform.jl`'s `"REFPOINT_Z"` testset, using `belgian_block.crg`,
+whose z-grid has a real ~2.13m nonzero value at `(start_u, v=0)`) showed
+`from_z` must fold in the z-grid's own value at `v = 0` too, i.e.
+`from_z = z_ref[1] + z_grid[1, v0_idx]`, matching `crgDataEvaluv2z`'s full
+surface evaluation (grid + reference elevation + banking, the last of which
+vanishes at `v=0`) rather than the reference-elevation-only value. This
+requires an EXACT `v = 0` entry in the (possibly `SCALE_WIDTH`-adjusted)
+`v` axis to look up without interpolating; if none exists, this function
+`error`s rather than approximating (same philosophy as the
+`REFPOINT_U*`/`REFPOINT_V*` error above).
 
 Deliberately NOT touched by any `SCALE_*` here: `v` only moves under
 `SCALE_WIDTH`, and only by a uniform multiplicative factor — this preserves
@@ -390,23 +439,57 @@ function apply_mods(data::CRGData)
         r.end_x, r.end_y, r.end_phi, r.start_z, r.end_z, r.v_right, r.v_left, r.v_increment,
         start_slope, end_slope, start_banking, end_banking)
 
-    has_refpoint = any(f -> getfield(mods, f) !== nothing, (:refpoint_u, :refpoint_u_fraction,
-        :refpoint_u_offset, :refpoint_v, :refpoint_v_fraction, :refpoint_v_offset,
-        :refpoint_x, :refpoint_y, :refpoint_z, :refpoint_phi))
+    # REFPOINT_U/REFPOINT_U_FRACTION/REFPOINT_V/REFPOINT_V_FRACTION pin an
+    # arbitrary CONTINUOUS (u,v) point, which requires genuine point
+    # interpolation (crgDataEvaluv2xy/crgDataEvaluv2z in the C reference) --
+    # out of scope for this package's grid-only, forward-only design (see
+    # this function's docstring). Error unconditionally on ANY value, rather
+    # than special-casing "happens to equal the default", which would be
+    # fragile, floating-point-exactness-dependent behavior.
+    any(f -> getfield(mods, f) !== nothing,
+        (:refpoint_u, :refpoint_u_fraction, :refpoint_v, :refpoint_v_fraction)) &&
+        error("apply_mods: REFPOINT_U/REFPOINT_U_FRACTION/REFPOINT_V/REFPOINT_V_FRACTION are not " *
+              "supported -- pinning an arbitrary continuous (u,v) point requires per-point " *
+              "interpolation, which this package's grid-only, forward-only design does not " *
+              "implement. Only REFPOINT_X/REFPOINT_Y/REFPOINT_Z/REFPOINT_PHI, anchored at the " *
+              "implicit default point (u = start_u, v = 0), are supported.")
+
+    # NOTE: REFPOINT_U_OFFSET/REFPOINT_V_OFFSET are deliberately absent from
+    # this trigger tuple -- in the C reference they are only ever read from
+    # INSIDE the UFrac/VFrac branches (crgMgr.c:846,865), never independent
+    # triggers, so (matching that exactly) they must be inert here too, now
+    # that the UFrac/VFrac path they'd otherwise feed always errors above.
+    has_refpoint = any(f -> getfield(mods, f) !== nothing,
+        (:refpoint_x, :refpoint_y, :refpoint_z, :refpoint_phi))
 
     if has_refpoint
-        x0, y0 = integrate_reference_line(r2, phi)
-        u_frac, u_off = something(mods.refpoint_u_fraction, 0.0), something(mods.refpoint_u_offset, 0.0)
-        u_pos = something(mods.refpoint_u, r2.start_u + u_frac * (r2.end_u - r2.start_u) + u_off)
-        idx = clamp(round(Int, (u_pos - r2.start_u) / u_increment) + 1, 1, length(phi))
-        from_x, from_y, from_phi = x0[idx], y0[idx], phi[idx]
+        # The only supported anchor is the implicit default (u = start_u,
+        # i.e. grid node 1; v = 0), which is exactly the reference line's own
+        # start point -- no integration/interpolation needed for x/y/phi.
+        from_x, from_y, from_phi = r2.start_x, r2.start_y, r2.start_phi
         rot_center = (from_x, from_y)
         rot_angle = something(mods.refpoint_phi, 0.0) - from_phi
         translation = (something(mods.refpoint_x, 0.0) - from_x, something(mods.refpoint_y, 0.0) - from_y)
+
+        # Matching crgDataApplyTransformations exactly: the anchor's current
+        # elevation (fromXYZ[2] there) is evaluated via crgDataEvaluv2z's
+        # FULL z surface -- z-grid value at v=0 PLUS the reference-line
+        # elevation, banking excluded since it's multiplied by v=0 -- not the
+        # reference-line elevation alone, and this happens whenever ANY of
+        # REFPOINT_X/Y/Z/PHI triggers this branch, not only when REFPOINT_Z
+        # itself is set (cross-validated; see the docstring and
+        # test_transform.jl's "REFPOINT_Z" testset).
+        v0_idx = findfirst(==(0.0), v)
+        v0_idx === nothing && error("apply_mods: REFPOINT_X/Y/Z/PHI need the elevation at the default " *
+              "anchor's v=0, which requires an exact v=0 declared long-section column -- this package " *
+              "does not implement v-interpolation, and this file has no exact v=0 column.")
+        from_z = integrate_reference_z(r2, slope, length(phi))[1] + z[1, v0_idx]
+        z_shift = something(mods.refpoint_z, 0.0) - from_z
     else
         rot_center = (something(mods.refline_rotcenter_x, r2.start_x), something(mods.refline_rotcenter_y, r2.start_y))
         rot_angle = something(mods.refline_offset_phi, 0.0)
         translation = (something(mods.refline_offset_x, 0.0), something(mods.refline_offset_y, 0.0))
+        z_shift = something(mods.refline_offset_z, 0.0)
     end
 
     c, s = cos(rot_angle), sin(rot_angle)
@@ -415,8 +498,8 @@ function apply_mods(data::CRGData)
     new_start_y = rot_center[2] + dx*s + dy*c + translation[2]
     new_start_phi = r2.start_phi + rot_angle
     phi .+= rot_angle
-    new_start_z = r2.start_z + something(mods.refline_offset_z, 0.0)
-    new_end_z = r2.end_z === nothing ? nothing : r2.end_z + something(mods.refline_offset_z, 0.0)
+    new_start_z = r2.start_z + z_shift
+    new_end_z = r2.end_z === nothing ? nothing : r2.end_z + z_shift
     new_end_x = r2.end_x === nothing ? nothing : rot_center[1] + (r2.end_x-rot_center[1])*c - (r2.end_y-rot_center[2])*s + translation[1]
     new_end_y = r2.end_y === nothing ? nothing : rot_center[2] + (r2.end_x-rot_center[1])*s + (r2.end_y-rot_center[2])*c + translation[2]
     new_end_phi = r2.end_phi === nothing ? nothing : r2.end_phi + rot_angle

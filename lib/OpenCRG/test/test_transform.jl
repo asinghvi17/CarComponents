@@ -423,6 +423,17 @@ using LibOpenCRG
         @test d2.refline.start_x ≈ 10.0
         @test d2.refline.start_y ≈ 20.0
         @test d2.refline.start_phi ≈ 0.5
+        # refpoint_z is UNSET here -- per apply_mods's docstring (Task 16+17
+        # review fix), this still shifts elevation, targeting 0.0 by default
+        # (mirroring refpoint_x/y's own "unset -> target 0.0" behavior), not
+        # leaving it untouched. This fixture's z-grid happens to be exactly
+        # 0.0 at (start_u, v=0) (confirmed by direct inspection), so this
+        # particular assertion can't distinguish "shifted to 0.0" from "left
+        # alone" -- it's the "REFPOINT_Z" testset below (using belgian_block.crg,
+        # whose z-grid is NOT zero at the anchor) that actually exercises the
+        # shift amount; this assertion is regression protection for the
+        # mechanism itself (no error, no NaN, doesn't silently corrupt Z).
+        @test d2.refline.start_z ≈ 0.0
 
         dsId = crgLoaderReadFile(path)
         @test crgDataSetModifierRemoveAll(dsId) != 0
@@ -441,7 +452,136 @@ using LibOpenCRG
             @test ref.status != 0
             @test X[i,j] ≈ ref.x atol=1e-6
             @test Y[i,j] ≈ ref.y atol=1e-6
+            ref_z = crgEvaluv2z(cpId, u[i], v[j])
+            @test ref_z.status != 0
+            @test Z[i,j] ≈ ref_z.z atol=1e-6
         end
+        crgContactPointDelete(cpId); crgDataSetRelease(dsId); crgMemRelease()
+    end
+
+    @testset "REFPOINT_U_OFFSET/REFPOINT_V_OFFSET alone (no _FRACTION sibling) do NOT trigger the REFPOINT branch" begin
+        # Bug #2 from the Tasks 16+17 review: crgDataApplyTransformations only
+        # ever reads dCrgModRefPointUOffset/VOffset from INSIDE the UFrac/VFrac
+        # branches (crgMgr.c:846,865) -- alone, they never set applyXform, so
+        # the C reference falls through to REFLINE_OFFSET_*/REFLINE_ROTCENTER_*.
+        # The shipped `has_refpoint` incorrectly included refpoint_u_offset/
+        # refpoint_v_offset as standalone triggers -- confirmed empirically
+        # during the review: refpoint_u_offset=5.0 plus refline_offset_x=100.0
+        # took the (wrong) REFPOINT branch in Julia vs. the C oracle's correct
+        # fallthrough to REFLINE_OFFSET_X. This mirrors the existing
+        # REFLINE_OFFSET_* cross-validation test above, with refpoint_u_offset/
+        # refpoint_v_offset thrown in (and expected to be completely inert).
+        path = joinpath(DATA, "handmade_curved_minimalist.crg")
+        data = OpenCRG.read_crg(path)
+        mods = OpenCRG.RoadCrgMods(refpoint_u_offset=5.0, refpoint_v_offset=0.3, refline_offset_x=100.0)
+        data_with_mods = OpenCRG.CRGData(data.comment, data.refline, data.format_code, data.opts, mods,
+                                          data.mpro, data.phi, data.banking, data.slope, data.v, data.z)
+        u, v, X, Y, Z = OpenCRG.road_surface_grid(data_with_mods)
+
+        dsId = crgLoaderReadFile(path)
+        @test crgDataSetModifierRemoveAll(dsId) != 0
+        @test crgDataSetModifierSetDouble(dsId, LibOpenCRG.dCrgModRefPointUOffset, 5.0) != 0
+        @test crgDataSetModifierSetDouble(dsId, LibOpenCRG.dCrgModRefPointVOffset, 0.3) != 0
+        @test crgDataSetModifierSetDouble(dsId, LibOpenCRG.dCrgModRefLineOffsetX, 100.0) != 0
+        crgDataSetModifiersApply(dsId)
+        cpId = crgContactPointCreate(dsId)
+        for i in eachindex(u), j in eachindex(v)
+            ref = crgEvaluv2xy(cpId, u[i], v[j])
+            @test ref.status != 0
+            @test X[i,j] ≈ ref.x atol=1e-6
+            @test Y[i,j] ≈ ref.y atol=1e-6
+        end
+        crgContactPointDelete(cpId); crgDataSetRelease(dsId); crgMemRelease()
+    end
+
+    @testset "REFPOINT_U/REFPOINT_U_FRACTION/REFPOINT_V/REFPOINT_V_FRACTION: unconditional error" begin
+        # Bug #1's flip side, and the plan's required scope-narrowing: this
+        # package can't pin an arbitrary continuous (u,v) point (no
+        # per-point interpolation/inversion API), so ANY of these four
+        # fields being set at all must error loudly rather than silently
+        # pinning the wrong point (or, worse, happening to look right only
+        # when the value coincides with the default anchor).
+        data = OpenCRG.read_crg(joinpath(DATA, "handmade_curved_minimalist.crg"))
+        for (field, value) in [(:refpoint_u, 2.0), (:refpoint_u_fraction, 0.5),
+                                (:refpoint_v, 1.0), (:refpoint_v_fraction, 0.5)]
+            mods = OpenCRG.RoadCrgMods(; Dict(field => value)...)
+            data_with_mods = OpenCRG.CRGData(data.comment, data.refline, data.format_code, data.opts, mods,
+                                              data.mpro, data.phi, data.banking, data.slope, data.v, data.z)
+            @test_throws Exception OpenCRG.apply_mods(data_with_mods)
+        end
+    end
+
+    @testset "REFPOINT_Z: pins elevation at the default anchor, cross-validated (resolves the v=0 z-grid-folding question)" begin
+        # apply_mods's docstring hypothesized from_z = z_ref[1] alone (the
+        # reference-line elevation, no z-grid contribution). Neither
+        # handmade_*.crg fixture can test this: their z-grid is exactly 0.0
+        # at (start_u, v=0) for every v (confirmed by direct inspection), so
+        # both "z_ref[1] alone" and "z_ref[1] + z_grid[1, v0_idx]" happen to
+        # give the same answer there. belgian_block.crg (added to the
+        # cross-validation fixture list in this same fix) is real-world scan
+        # data whose z-grid is NOT zero at the anchor (~2.13m) -- confirmed
+        # by cross-validating against the real C library directly
+        # (crgEvaluv2z on the UNMODIFIED data set at (start_u, 0.0) returns
+        # ≈2.1315932273864746, matching z_ref[1] (=0.0, no slope/start_z in
+        # this file) + data.z[1, v0_idx] (=2.1315932273864746) bit-for-bit --
+        # NOT the unfolded 0.0 the original hypothesis would have given).
+        # This is the fixture that empirically forced folding the z-grid's
+        # own v=0 value into from_z.
+        path = joinpath(DATA, "belgian_block.crg")
+        data = OpenCRG.read_crg(path)
+
+        v0_idx = findfirst(==(0.0), data.v)
+        @test v0_idx !== nothing
+        @test !isapprox(data.z[1, v0_idx], 0.0; atol=1e-9)   # sanity: this fixture CAN distinguish the two hypotheses
+
+        target = 42.0
+        mods = OpenCRG.RoadCrgMods(refpoint_z=target)
+        data_with_mods = OpenCRG.CRGData(data.comment, data.refline, data.format_code, data.opts, mods,
+                                          data.mpro, data.phi, data.banking, data.slope, data.v, data.z)
+        d2 = OpenCRG.apply_mods(data_with_mods)
+        # NOT `d2.refline.start_z ≈ target` -- `refline.start_z` is only the
+        # reference-line-elevation channel (z_ref[1]), which excludes the
+        # z-grid's own v=0 contribution (z_grid is left untouched by
+        # apply_mods; only z_ref moves). Since target = new_start_z +
+        # z_grid[1,v0_idx], `refline.start_z` alone comes out to
+        # `target - z_grid[1,v0_idx]`, not `target`. It's the FULL anchor
+        # elevation -- z_ref PLUS the z-grid's v=0 value, i.e. exactly what
+        # `road_surface_grid`'s assembled `Z` reports at node 1 / v=0 -- that
+        # is pinned to `target` exactly, by construction (see apply_mods's
+        # docstring: `from_z` folds in `z[1, v0_idx]`, and the shift is
+        # `target - from_z`, so `new_start_z + z[1, v0_idx] ==
+        # (z_ref[1] + (target - from_z)) + z[1, v0_idx] == target` exactly,
+        # since `from_z == z_ref[1] + z[1, v0_idx]`).
+        @test d2.refline.start_z + d2.z[1, v0_idx] ≈ target
+
+        u, v, X, Y, Z = OpenCRG.road_surface_grid(data_with_mods)
+        @test Z[1, v0_idx] ≈ target   # same fact, via the assembled grid this time
+
+        dsId = crgLoaderReadFile(path)
+        @test dsId != 0
+        @test crgDataSetModifierRemoveAll(dsId) != 0
+        @test crgDataSetModifierSetDouble(dsId, LibOpenCRG.dCrgModRefPointZ, target) != 0
+        crgDataSetModifiersApply(dsId)
+        cpId = crgContactPointCreate(dsId)
+
+        # belgian_block.crg is a large (1001x341) real-world fixture -- sample
+        # a handful of (u,v) pairs (both ends of u, the middle, and a few v's
+        # including v=0 and the road edges) rather than the full grid: this
+        # test's purpose is confirming the Z-anchor-pinning shift mechanism,
+        # not re-cross-validating the whole lateral/z-grid assembly pipeline
+        # (already covered end-to-end, on the FULL grid, by
+        # test_crossvalidate.jl now that belgian_block.crg is in its list).
+        sample_i = unique(clamp.([1, 2, cld(length(u), 2), length(u) - 1, length(u)], 1, length(u)))
+        sample_j = unique(clamp.([1, v0_idx, cld(length(v), 2), length(v)], 1, length(v)))
+        mismatches = 0
+        for i in sample_i, j in sample_j
+            ref_z = crgEvaluv2z(cpId, u[i], v[j])
+            if ref_z.status != 0 && !isnan(ref_z.z) && !isnan(Z[i,j])
+                isapprox(Z[i,j], ref_z.z; atol=1e-6) || (mismatches += 1)
+            end
+        end
+        @test mismatches == 0
+
         crgContactPointDelete(cpId); crgDataSetRelease(dsId); crgMemRelease()
     end
 

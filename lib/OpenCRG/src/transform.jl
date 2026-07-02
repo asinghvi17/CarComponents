@@ -387,7 +387,24 @@ requires an EXACT `v = 0` entry in the (possibly `SCALE_WIDTH`-adjusted)
 `error`s rather than approximating (same philosophy as the
 `REFPOINT_U*`/`REFPOINT_V*` error above).
 
-Deliberately NOT touched by any `SCALE_*` here: `v` only moves under
+**`SCALE_LENGTH` also rescales `end_u` proportionally about `start_u`, not just
+`increment`** — matching `crgDataSetModifiersApply`'s explicit
+`channelU.info.last = channelU.info.first + dValue * uRange` (`crgMgr.c`
+~lines 548-558), where `uRange` is the ORIGINAL (pre-scale) `end_u - start_u`,
+and `channelU.info.first` (`start_u`) is left untouched. Found during the
+whole-plan final review: an earlier version of this function scaled
+`u_increment` correctly but threaded `r.end_u` straight through to `r2`/`r3`
+completely unchanged. `road_surface_grid`'s own u-axis (`u = [start_u +
+(i-1)*increment for i in 1:nu]`) only ever reads `start_u`/`increment`, never
+`end_u` — so this had (and, now fixed, still has) zero effect on any grid
+this package actually produces. But `end_u` IS part of the public
+`ReferenceLineParams`/`CRGData` struct a caller can read directly, so leaving
+it stale after a length rescale was a real correctness bug regardless of
+downstream reachability — cross-validated directly against the compiled C
+oracle's own post-scale `crgDataSetGetURange` output (not just hand
+arithmetic) in `test_transform.jl`'s `"SCALE_LENGTH"` regression test.
+
+Deliberately NOT touched by any other `SCALE_*` here: `v` only moves under
 `SCALE_WIDTH`, and only by a uniform multiplicative factor — this preserves
 (assuming a positive scale factor, the only physically sensible one for a
 road width) the invariant `assemble_z_grid` (Task 14) depends on, that `v`
@@ -438,6 +455,14 @@ function apply_mods(data::CRGData)
     r2 = ReferenceLineParams(r.start_u, r.end_u, u_increment, r.start_x, r.start_y, r.start_phi,
         r.end_x, r.end_y, r.end_phi, r.start_z, r.end_z, r.v_right, r.v_left, r.v_increment,
         start_slope, end_slope, start_banking, end_banking)
+
+    # SCALE_LENGTH: end_u must rescale proportionally about start_u (matching
+    # crgDataSetModifiersApply's `channelU.info.last = channelU.info.first +
+    # dValue * uRange`, crgMgr.c ~548-558) -- NOT stay fixed at r2.end_u, which
+    # is otherwise never read again between here and r3's construction below
+    # (only threaded straight through), making this the one place the
+    # corrected value needs to land. See this function's docstring.
+    new_end_u = r2.start_u + something(mods.scale_length, 1.0) * (r2.end_u - r2.start_u)
 
     # REFPOINT_U/REFPOINT_U_FRACTION/REFPOINT_V/REFPOINT_V_FRACTION pin an
     # arbitrary CONTINUOUS (u,v) point, which requires genuine point
@@ -513,7 +538,7 @@ function apply_mods(data::CRGData)
     new_end_y = r2.end_y === nothing ? nothing : rot_center[2] + (r2.end_x-rot_center[1])*s + (r2.end_y-rot_center[2])*c + translation[2]
     new_end_phi = r2.end_phi === nothing ? nothing : r2.end_phi + rot_angle
 
-    r3 = ReferenceLineParams(r2.start_u, r2.end_u, r2.increment, new_start_x, new_start_y, new_start_phi,
+    r3 = ReferenceLineParams(r2.start_u, new_end_u, r2.increment, new_start_x, new_start_y, new_start_phi,
         new_end_x, new_end_y, new_end_phi, new_start_z, new_end_z,
         r2.v_right, r2.v_left, r2.v_increment, r2.start_slope, r2.end_slope, r2.start_banking, r2.end_banking)
 

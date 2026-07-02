@@ -809,4 +809,230 @@ using LibOpenCRG
         # the exact-same-position, exact-same-untouched-value case here.
         @test isequal(d2.z, data.z)   # z itself is untouched -- only the v labels attached to its columns change
     end
+
+    # The four testsets below close a whole-plan-final-review coverage gap:
+    # scale_length/scale_curvature/scale_slope/scale_banking had ZERO
+    # behavioral test coverage anywhere in this file before this fix (grep
+    # confirmed none of those four identifiers appeared here), in sharp
+    # contrast to SCALE_Z_GRID/SCALE_WIDTH above. All four use
+    # handmade_curved_banked_sloped.crg: it's the only vendored fixture with
+    # BOTH a nonzero, unequal start_u/end_u range (0.0/22.0 -- needed to
+    # distinguish "scaled" from "stale" for SCALE_LENGTH) AND real, non-flat,
+    # non-constant per-row banking/slope/phi channel data (all three ramp
+    # 0.0 -> 0.11 -> 0.0 -- confirmed by direct inspection; belgian_block.crg,
+    # the other candidate, has neither banking nor slope channels at all, and
+    # its phi is a real recorded curve but it's a much larger fixture with no
+    # offsetting benefit here). It's also small (23 rows x 7 v-columns = 161
+    # grid points), so every cross-validation below enumerates the FULL grid
+    # rather than sparse-sampling like the belgian_block.crg tests above.
+
+    @testset "SCALE_LENGTH rescales end_u proportionally about start_u (was stale before this fix), cross-validated" begin
+        # Found during the whole-plan final review: apply_mods scaled
+        # u_increment under SCALE_LENGTH but threaded r.end_u straight through
+        # to r2/r3 completely UNCHANGED. The real C reference
+        # (crgDataSetModifiersApply, crgMgr.c ~548-558) instead recomputes
+        # `channelU.info.last = channelU.info.first + dValue * uRange` (uRange
+        # being the ORIGINAL, pre-scale `last - first`) -- i.e. end_u must
+        # scale proportionally about start_u, not stay fixed. This bug has
+        # zero effect on road_surface_grid's own output (its u-axis is built
+        # from `start_u + (i-1)*increment` only; end_u is never read
+        # downstream -- see road_surface_grid's body and apply_mods's
+        # docstring) -- but end_u IS part of the public
+        # ReferenceLineParams/CRGData struct a caller could read directly, so
+        # leaving it stale was a real, if inert, correctness bug.
+        path = joinpath(DATA, "handmade_curved_banked_sloped.crg")
+        data = OpenCRG.read_crg(path)
+        @test data.refline.start_u == 0.0    # sanity: nonzero, UNEQUAL start_u/end_u --
+        @test data.refline.end_u == 22.0     # otherwise this fixture couldn't distinguish "scaled" from "stale"
+
+        factor = 1.5
+        mods = OpenCRG.RoadCrgMods(scale_length=factor)
+        data_with_mods = OpenCRG.CRGData(data.comment, data.refline, data.format_code, data.opts, mods,
+                                          data.mpro, data.phi, data.banking, data.slope, data.v, data.z)
+        d2 = OpenCRG.apply_mods(data_with_mods)
+        @test d2.refline.start_u == 0.0                              # start_u itself never moves
+        @test d2.refline.end_u ≈ 0.0 + factor * (22.0 - 0.0)         # == 33.0: proportional about start_u, NOT the stale 22.0
+        @test !isapprox(d2.refline.end_u, data.refline.end_u)         # sanity: distinguishable from the (bug's) unchanged value
+        @test d2.refline.increment ≈ factor * data.refline.increment # the part that was already correct before this fix
+
+        u, v, X, Y, Z = OpenCRG.road_surface_grid(data_with_mods)
+
+        dsId = crgLoaderReadFile(path)
+        @test dsId != 0
+        @test crgDataSetModifierRemoveAll(dsId) != 0
+        @test crgDataSetModifierSetDouble(dsId, LibOpenCRG.dCrgModScaleLength, factor) != 0
+        crgDataSetModifiersApply(dsId)
+
+        # Cross-validate the end_u fix directly against the compiled oracle's
+        # own post-scale internal state (crgDataSetGetURange reads
+        # channelU.info.first/last back out), not just hand arithmetic.
+        uRangeRes = crgDataSetGetURange(dsId)
+        @test uRangeRes.status != 0
+        @test uRangeRes.uMin ≈ d2.refline.start_u atol=1e-9
+        @test uRangeRes.uMax ≈ d2.refline.end_u atol=1e-9
+
+        # Cross-validate the actually-behaviorally-visible effect too
+        # (increment stretching the whole grid), same mismatch-counting
+        # pattern as the REFPOINT_Z/SCALE_Z_GRID+REFPOINT_Z cross-validation
+        # tests above.
+        cpId = crgContactPointCreate(dsId)
+        mismatches = 0
+        for i in eachindex(u), j in eachindex(v)
+            ref_xy = crgEvaluv2xy(cpId, u[i], v[j])
+            if ref_xy.status != 0 && !isnan(X[i,j]) && !isnan(Y[i,j])
+                (isapprox(X[i,j], ref_xy.x; atol=1e-6) && isapprox(Y[i,j], ref_xy.y; atol=1e-6)) || (mismatches += 1)
+            end
+            ref_z = crgEvaluv2z(cpId, u[i], v[j])
+            if ref_z.status != 0 && !isnan(ref_z.z) && !isnan(Z[i,j])
+                isapprox(Z[i,j], ref_z.z; atol=1e-6) || (mismatches += 1)
+            end
+        end
+        @test mismatches == 0
+
+        crgContactPointDelete(cpId); crgDataSetRelease(dsId); crgMemRelease()
+    end
+
+    @testset "SCALE_CURVATURE: phi-transformation formula, hand-verified with non-trivial non-constant phi" begin
+        # Unlike the other SCALE_* fields, curvature scaling has no
+        # crgDataScaleChannel analogue -- it's hand-rolled identically in both
+        # the Julia and C implementations: phi[i] = base + scale*(phi[i]-base)
+        # for every index EXCEPT the first (base = phi[1], never itself
+        # rescaled). A CONSTANT phi structurally cannot distinguish a correct
+        # per-element transform from e.g. an off-by-one bug that scales about
+        # the wrong pivot or a formula that scales phi[i] by a constant
+        # instead of (phi[i]-base) -- same rationale as
+        # integrate_reference_line/integrate_reference_z's own
+        # "arrival-heading/-slope convention" tests earlier in this file --
+        # hence the deliberately non-constant, non-monotonic phi below.
+        r = OpenCRG.parse_road_crg(["REFERENCE_LINE_START_PHI=0.3"])
+        phi = [0.3, 0.5, -0.3, 0.9, 1.4]   # phi[1] == start_phi, matching real parsed data (assemble_channels's row-1 overwrite)
+        mods = OpenCRG.RoadCrgMods(scale_curvature=2.0)
+        data = OpenCRG.CRGData("", r, :LRFI, Dict{String,Float64}(), mods, Dict{String,String}(),
+                                phi, nothing, nothing, [0.0], zeros(5, 1))
+        d2 = OpenCRG.apply_mods(data)
+        # Hand-computed: base = phi[1] = 0.3; phi[i]_new = 0.3 + 2.0*(phi[i]-0.3) for i=2:5.
+        #   phi[2]: 0.3 + 2.0*(0.5 - 0.3)  = 0.3 + 0.4  = 0.7
+        #   phi[3]: 0.3 + 2.0*(-0.3 - 0.3) = 0.3 - 1.2  = -0.9
+        #   phi[4]: 0.3 + 2.0*(0.9 - 0.3)  = 0.3 + 1.2  = 1.5
+        #   phi[5]: 0.3 + 2.0*(1.4 - 0.3)  = 0.3 + 2.2  = 2.5
+        # No REFLINE_OFFSET_PHI/REFPOINT_PHI set here, so apply_mods's later
+        # unconditional `phi .+= rot_angle` step adds exactly 0.0 -- this
+        # isolates the curvature transform alone. Independently verified both
+        # by hand (above) and in an isolated Julia scratch session.
+        @test d2.phi ≈ [0.3, 0.7, -0.9, 1.5, 2.5] atol=1e-12
+    end
+
+    @testset "SCALE_CURVATURE: phi transform on real curved data, cross-validated against LibOpenCRG" begin
+        # dCrgModScaleCurvature (LibOpenCRG.jl constant, =26, added in Task 15)
+        # DOES exist as a real, isolated C-library modifier id, same as the
+        # other 5 SCALE_* fields -- so this closes the gap the same
+        # cross-validated way as SCALE_LENGTH/SCALE_SLOPE/SCALE_BANKING,
+        # checking the whole (X,Y,Z) grid this time rather than just phi in
+        # isolation (the previous testset already hand-verified the raw phi
+        # formula; this one confirms it composes correctly with everything
+        # downstream -- integrate_reference_line, lateral_offset_grid, etc.).
+        path = joinpath(DATA, "handmade_curved_banked_sloped.crg")
+        data = OpenCRG.read_crg(path)
+        @test length(unique(data.phi[2:end])) > 1   # sanity: genuinely non-constant (curved) phi data, not a degenerate straight line
+
+        factor = 1.5
+        mods = OpenCRG.RoadCrgMods(scale_curvature=factor)
+        data_with_mods = OpenCRG.CRGData(data.comment, data.refline, data.format_code, data.opts, mods,
+                                          data.mpro, data.phi, data.banking, data.slope, data.v, data.z)
+        u, v, X, Y, Z = OpenCRG.road_surface_grid(data_with_mods)
+
+        dsId = crgLoaderReadFile(path)
+        @test dsId != 0
+        @test crgDataSetModifierRemoveAll(dsId) != 0
+        @test crgDataSetModifierSetDouble(dsId, LibOpenCRG.dCrgModScaleCurvature, factor) != 0
+        crgDataSetModifiersApply(dsId)
+        cpId = crgContactPointCreate(dsId)
+        mismatches = 0
+        for i in eachindex(u), j in eachindex(v)
+            ref_xy = crgEvaluv2xy(cpId, u[i], v[j])
+            if ref_xy.status != 0 && !isnan(X[i,j]) && !isnan(Y[i,j])
+                (isapprox(X[i,j], ref_xy.x; atol=1e-6) && isapprox(Y[i,j], ref_xy.y; atol=1e-6)) || (mismatches += 1)
+            end
+            ref_z = crgEvaluv2z(cpId, u[i], v[j])
+            if ref_z.status != 0 && !isnan(ref_z.z) && !isnan(Z[i,j])
+                isapprox(Z[i,j], ref_z.z; atol=1e-6) || (mismatches += 1)
+            end
+        end
+        @test mismatches == 0
+        crgContactPointDelete(cpId); crgDataSetRelease(dsId); crgMemRelease()
+    end
+
+    @testset "SCALE_SLOPE scales the slope channel (and start_slope/end_slope), cross-validated" begin
+        path = joinpath(DATA, "handmade_curved_banked_sloped.crg")
+        data = OpenCRG.read_crg(path)
+        @test data.slope !== nothing
+        @test any(!=(0.0), data.slope)   # sanity: real, nonzero per-row slope data -- not a vacuous all-zero test
+
+        factor = 2.0
+        mods = OpenCRG.RoadCrgMods(scale_slope=factor)
+        data_with_mods = OpenCRG.CRGData(data.comment, data.refline, data.format_code, data.opts, mods,
+                                          data.mpro, data.phi, data.banking, data.slope, data.v, data.z)
+        d2 = OpenCRG.apply_mods(data_with_mods)
+        @test d2.slope ≈ factor .* data.slope
+        # This fixture's header never declares REFERENCE_LINE_START_S/END_S,
+        # so start_slope defaults to 0.0 (scaling is a no-op, but still
+        # regression-tested) and end_slope stays `nothing` throughout.
+        @test d2.refline.start_slope == 0.0
+        @test d2.refline.end_slope === nothing
+
+        u, v, X, Y, Z = OpenCRG.road_surface_grid(data_with_mods)
+
+        dsId = crgLoaderReadFile(path)
+        @test dsId != 0
+        @test crgDataSetModifierRemoveAll(dsId) != 0
+        @test crgDataSetModifierSetDouble(dsId, LibOpenCRG.dCrgModScaleSlope, factor) != 0
+        crgDataSetModifiersApply(dsId)
+        cpId = crgContactPointCreate(dsId)
+        mismatches = 0
+        for i in eachindex(u), j in eachindex(v)
+            ref_z = crgEvaluv2z(cpId, u[i], v[j])
+            if ref_z.status != 0 && !isnan(ref_z.z) && !isnan(Z[i,j])
+                isapprox(Z[i,j], ref_z.z; atol=1e-6) || (mismatches += 1)
+            end
+        end
+        @test mismatches == 0
+        crgContactPointDelete(cpId); crgDataSetRelease(dsId); crgMemRelease()
+    end
+
+    @testset "SCALE_BANKING scales the banking channel (and start_banking/end_banking), cross-validated" begin
+        path = joinpath(DATA, "handmade_curved_banked_sloped.crg")
+        data = OpenCRG.read_crg(path)
+        @test data.banking !== nothing
+        @test any(!=(0.0), data.banking)   # sanity: real, nonzero per-row banking data -- not a vacuous all-zero test
+
+        factor = 2.0
+        mods = OpenCRG.RoadCrgMods(scale_banking=factor)
+        data_with_mods = OpenCRG.CRGData(data.comment, data.refline, data.format_code, data.opts, mods,
+                                          data.mpro, data.phi, data.banking, data.slope, data.v, data.z)
+        d2 = OpenCRG.apply_mods(data_with_mods)
+        @test d2.banking ≈ factor .* data.banking
+        # Same "header never declares START_B/END_B" situation as SCALE_SLOPE
+        # above: start_banking defaults to 0.0 (scaling is a no-op, but still
+        # regression-tested) and end_banking stays `nothing`.
+        @test d2.refline.start_banking == 0.0
+        @test d2.refline.end_banking === nothing
+
+        u, v, X, Y, Z = OpenCRG.road_surface_grid(data_with_mods)
+
+        dsId = crgLoaderReadFile(path)
+        @test dsId != 0
+        @test crgDataSetModifierRemoveAll(dsId) != 0
+        @test crgDataSetModifierSetDouble(dsId, LibOpenCRG.dCrgModScaleBank, factor) != 0
+        crgDataSetModifiersApply(dsId)
+        cpId = crgContactPointCreate(dsId)
+        mismatches = 0
+        for i in eachindex(u), j in eachindex(v)
+            ref_z = crgEvaluv2z(cpId, u[i], v[j])
+            if ref_z.status != 0 && !isnan(ref_z.z) && !isnan(Z[i,j])
+                isapprox(Z[i,j], ref_z.z; atol=1e-6) || (mismatches += 1)
+            end
+        end
+        @test mismatches == 0
+        crgContactPointDelete(cpId); crgDataSetRelease(dsId); crgMemRelease()
+    end
 end

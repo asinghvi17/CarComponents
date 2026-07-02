@@ -126,3 +126,19 @@ end
     @test v == [-1.0, 1.0]          # sorted ascending, regardless of declaration order
     @test z == [20.0 10.0; 21.0 11.0]   # columns reordered to match the sorted v
 end
+
+@testset "assemble_channels: no long_section channels is an error" begin
+    r = OpenCRG.parse_road_crg(String[])
+    channels = [OpenCRG.ChannelDef(:phi, nothing, nothing)]
+    raw = reshape([0.0, 0.5], 2, 1)
+    @test_throws Exception OpenCRG.assemble_channels(raw, channels, r)
+end
+
+@testset "assemble_channels: no phi channel declared -- NaN propagates, doesn't error" begin
+    r = OpenCRG.parse_road_crg(["REFERENCE_LINE_START_PHI = 0.25"])
+    channels = [OpenCRG.ChannelDef(:long_section, 0.0, nothing)]
+    raw = reshape([10.0, 11.0], 2, 1)
+    phi, banking, slope, v, z = OpenCRG.assemble_channels(raw, channels, r)
+    @test phi[1] == 0.25      # row-1 placeholder still gets overwritten...
+    @test isnan(phi[2])       # ...but there's no real data to recover the rest from
+end

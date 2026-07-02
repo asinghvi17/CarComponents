@@ -129,6 +129,16 @@ always overwritten with `refline.start_phi`, regardless of what's stored —
 the reference implementation does this unconditionally, since that row's
 stored value is a documented placeholder, never actually used as an arrival
 heading.
+
+Requires at least one `:long_section` channel — a CRG file with none would
+have no elevation data at all, which is caught here rather than silently
+producing an empty `(nu, 0)` z-matrix that would only fail confusingly much
+later (in Task 11+). If no `:phi` channel is declared at all (both vendored
+fixtures always declare one, so this is untested against real data),
+`phi` stays `fill(NaN, nu)` except for the row-1 placeholder overwrite —
+deliberately NOT an error, since NaN already poisons Task 11's integration
+loudly rather than silently defaulting to a fabricated straight/`phi=0`
+road.
 """
 function assemble_channels(raw::Matrix{Float64}, channels::Vector{ChannelDef}, refline::ReferenceLineParams)
     nu = size(raw, 1)
@@ -147,6 +157,7 @@ function assemble_channels(raw::Matrix{Float64}, channels::Vector{ChannelDef}, r
             push!(long_idxs, i)
         end
     end
+    isempty(long_idxs) && error("no :long_section channels declared in \$KD_DEFINITION -- a CRG file must have elevation data")
     v_all = v_axis(channels, refline)
     order = sortperm(v_all)
     v = v_all[order]

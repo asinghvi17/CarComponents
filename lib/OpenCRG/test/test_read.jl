@@ -20,5 +20,22 @@
         data = OpenCRG.read_crg(joinpath(DATA, "belgian_block.crg"))
         @test data.format_code == :KRBI
         @test size(data.z) == (1001, 341)   # 342 channels total minus 1 phi channel
+        @test !isempty(data.opts)   # this file has a real $ROAD_CRG_OPTS section -- guards against a swapped section-key typo
+    end
+
+    @testset "comment/opts/mods/mpro are wired to the right sections, not silently swapped" begin
+        data = OpenCRG.read_crg(joinpath(DATA, "handmade_curved_banked_sloped.crg"))
+        @test data.mods isa OpenCRG.RoadCrgMods
+        @test all(f -> getfield(data.mods, f) === nothing, fieldnames(OpenCRG.RoadCrgMods))
+    end
+
+    @testset "no channels declared is a clear error, not a DivideError" begin
+        path = tempname()
+        write(path, "\$CT\nempty file, no \$KD_DEFINITION at all\n\$\$\$\$\n")
+        try
+            @test_throws Exception OpenCRG.read_crg(path)
+        finally
+            rm(path)
+        end
     end
 end

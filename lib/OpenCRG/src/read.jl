@@ -30,6 +30,12 @@ grid rows is never computed from `\$ROAD_CRG`'s `start_u`/`end_u`/
 descriptive/redundant metadata when present. The true row count comes from
 `decode_ascii_payload`/`decode_binary_payload`, which derive it directly
 from the payload's actual size (see Tasks 7-8).
+
+Errors immediately, with a clear message, if no channels are declared at
+all (a missing or empty `\$KD_DEFINITION` -- the sign of a non-CRG file, or
+one with no data at all) -- without this check, `nchannels == 0` would reach
+`decode_ascii_payload`/`decode_binary_payload` and fail with a bare, cryptic
+`DivideError` instead.
 """
 function read_crg(path::AbstractString)
     bytes = read(path)
@@ -46,6 +52,7 @@ function read_crg(path::AbstractString)
     mpro = parse_keyvalue_strings(get(sections, "ROAD_CRG_MPRO", String[]))
 
     nchannels = length(channels)
+    nchannels == 0 && error("no channels declared in \$KD_DEFINITION (section missing or empty) -- not a valid CRG file")
     raw = if format_code in (:LRFI, :LDFI)
         decode_ascii_payload(split_lines(payload), format_code, nchannels)
     else

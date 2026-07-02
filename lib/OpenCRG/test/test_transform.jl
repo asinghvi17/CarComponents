@@ -227,3 +227,91 @@ end
         @test isnan(X[2, 1])
     end
 end
+
+@testset "assemble_z_grid" begin
+    r = OpenCRG.parse_road_crg(String[])
+    z_grid = [0.0 0.1 0.2; 1.0 1.1 1.2]   # 2 rows x 3 v-columns
+    z_ref = [10.0, 20.0]
+    v = [-1.0, 0.0, 1.0]
+
+    @testset "no banking: pure additive z_grid + z_ref" begin
+        Z = OpenCRG.assemble_z_grid(z_grid, z_ref, nothing, r, v)
+        @test Z ≈ [10.0 10.1 10.2; 21.0 21.1 21.2]
+    end
+
+    @testset "banking adds v * bank(u), clipped to [v_min, v_max]" begin
+        banking = [0.05, -0.05]
+        Z = OpenCRG.assemble_z_grid(z_grid, z_ref, banking, r, v)
+        @test Z[1, :] ≈ [10.0 - 0.05, 10.1, 10.2 + 0.05]
+        @test Z[2, :] ≈ [21.0 + 0.05, 21.1, 21.2 - 0.05]
+    end
+
+    @testset "banking clamp bounds come from the SAME v passed in -- self-referential no-op (see docstring)" begin
+        # The plan's original version of this test asserted results clipped
+        # against the OUTER-SCOPE `v = [-1.0, 0.0, 1.0]` defined above, as if
+        # `assemble_z_grid` clipped its `wide_v` argument against some other,
+        # independently-declared road-width axis. But the function has only
+        # ONE `v` parameter, used BOTH to index z_grid's columns AND to
+        # compute `vmin, vmax = first(v), last(v)` for the banking clamp --
+        # so whatever `v` is actually passed in defines its own clamp
+        # bounds; the outer `v` above is never seen by the function at all.
+        #
+        # Empirically confirmed by running the plan's test verbatim against
+        # the plan's verbatim implementation before writing this fix -- it
+        # FAILS both assertions:
+        #   Z[1,1] ≈ z_grid[1,1] + z_ref[1] + 0.1*(-1.0)   # expected ≈ 9.9
+        #   Evaluated: 9.5 ≈ 9.9  =>  false  (got 9.5)
+        #   Z[1,3] ≈ z_grid[1,3] + z_ref[1] + 0.1*1.0       # expected ≈ 10.3
+        #   Evaluated: 10.7 ≈ 10.299999999999999  =>  false  (got 10.7)
+        # because vmin/vmax are actually computed from `wide_v` itself
+        # (-5.0, 5.0), not from the outer-scope `v` -- so nothing is
+        # actually clipped relative to `wide_v`'s own values.
+        #
+        # This isn't a one-off typo in the literals: it's a structural fact
+        # for ANY sorted-ascending `v` (the only kind `CRGData.v` is ever
+        # constructed as, via Task 9's `assemble_channels`'s `sortperm`) --
+        # `first(v)`/`last(v)` are simply v's own min/max, so
+        # `clamp(v[j], first(v), last(v)) == v[j]` for every `j`, always.
+        # See `assemble_z_grid`'s docstring for why this differs from the C
+        # reference (a continuous point-query evaluator, where the query v
+        # and the channel's declared axis are genuinely two different
+        # things) and why the clamp is kept anyway (harmless, defensive,
+        # matches upstream intent, costs nothing).
+        banking = [0.1, 0.1]
+        wide_v = [-5.0, 0.0, 5.0]
+        Z = OpenCRG.assemble_z_grid(z_grid, z_ref, banking, r, wide_v)
+        @test Z[1, 1] ≈ z_grid[1,1] + z_ref[1] + 0.1 * (-5.0)   # NOT clipped: -5.0 IS wide_v's own min
+        @test Z[1, 3] ≈ z_grid[1,3] + z_ref[1] + 0.1 * 5.0      # NOT clipped: 5.0 IS wide_v's own max
+    end
+
+    @testset "clamp arithmetic itself, via a synthetic non-monotonic v (never produced by the real pipeline)" begin
+        # The previous testset shows NO sorted-ascending v can ever trigger
+        # the clamp: v[1] <= v[j] <= v[end] holds by definition for any
+        # ascending array, and `CRGData.v` is always sorted ascending. So
+        # the clamp is mathematically inert on every real
+        # `read_crg -> road_surface_grid` call path -- there is no
+        # spec-compliant input that reaches it non-trivially.
+        #
+        # To still give the literal `vc = clamp(v[j], vmin, vmax)` line real
+        # regression protection -- so that e.g. accidentally simplifying it
+        # to `vc = v[j]` would be CAUGHT by the test suite, which the
+        # no-op-on-realistic-v test above structurally cannot do -- this
+        # feeds `assemble_z_grid` a deliberately non-monotonic `v`.
+        # `assemble_z_grid` never asserts sortedness (it has no reason to,
+        # since Task 9 already guarantees it upstream), so this is
+        # syntactically accepted, even though `read_crg`/`assemble_channels`
+        # would never actually hand it a `v` shaped like this one.
+        #
+        # vmin, vmax = first(v), last(v) = -1.0, 1.0 here, but the MIDDLE
+        # entry v[2] = 5.0 lies outside that range, so it (and only it) gets
+        # pulled down to vmax = 1.0; confirmed by direct execution, not just
+        # by hand: Z[1,2] = z_grid[1,2] + z_ref[1] + 1.0*clamp(5.0,-1,1) =
+        # 0.1 + 10.0 + 1.0*1.0 = 11.1 (the unclamped value would have been
+        # 0.1 + 10.0 + 1.0*5.0 = 15.1 -- clearly different).
+        banking = [1.0, 0.0]   # only row 1 is exercised below
+        non_monotonic_v = [-1.0, 5.0, 1.0]
+        Z = OpenCRG.assemble_z_grid(z_grid, z_ref, banking, r, non_monotonic_v)
+        @test Z[1, 2] ≈ z_grid[1,2] + z_ref[1] + 1.0 * 1.0   # clamped down from 5.0 to vmax=1.0
+        @test !isapprox(Z[1, 2], z_grid[1,2] + z_ref[1] + 1.0 * 5.0)   # sanity: distinguishable from the unclamped value
+    end
+end

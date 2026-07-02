@@ -178,3 +178,54 @@ function lateral_offset_grid(x::Vector{Float64}, y::Vector{Float64}, v::Vector{F
     end
     return X, Y
 end
+
+"""
+    assemble_z_grid(z_grid, z_ref, banking, refline, v) -> Z
+
+`Z[i,j] = z_grid[i,j] + z_ref[i] + bank(i) * clamp(v[j], v[1], v[end])`.
+Banking's lateral reach is clamped to the road's actual v-range regardless
+of what `v` values are being queried — matching `crgEvalz.c`, which clips
+`v` for the banking term specifically (but not for the grid-z lookup
+itself). If there's no `banking` channel, `refline.start_banking` (default
+0.0, from `REFERENCE_LINE_START_B`) is used as a constant cross-slope for
+every row.
+
+**This clamp is a provable no-op on every real call path in this package.**
+In the C reference, `crgEvaluv2z` (`crgEvalz.c` lines ~574-588) is a
+*continuous point-query* evaluator: its query `v` (an arbitrary real, e.g.
+5.3) is a genuinely different quantity from `crgData->channelV.info.first`/
+`.last` (the channel's own declared, discrete v-axis) — so clamping the
+query to the channel's declared range is real, meaningful work. This
+package has no such split: it's a batched forward transform only (see the
+design doc — "no per-point Newton-iteration inversion ... forward-only"),
+so there is exactly one `v` in play. `road_surface_grid` always calls
+`assemble_z_grid(d.z, z_ref, d.banking, d.refline, d.v)` with the very same
+`d.v` that `d.z`'s own columns were built against in `assemble_channels`
+(Task 9), which always returns `v` sorted ascending (`sortperm`). For any
+sorted-ascending `v`, `first(v)` and `last(v)` are exactly its min and max,
+so `clamp(v[j], first(v), last(v)) == v[j]` for every `j` — always, by
+construction, not merely by observation. The clamp is kept anyway
+(unconditionally, per this task's implementation) because it's harmless,
+free, and mirrors the upstream reference's defensive intent — see
+`test_transform.jl`'s `assemble_z_grid` testset, which pins both (a) this
+no-op behavior on realistic (sorted) `v`, and (b) the clamp's literal
+arithmetic via a synthetic non-monotonic `v` that the real pipeline never
+produces but which still exercises the `clamp(...)` line for regression
+purposes. This mirrors how Task 13's review documented — rather than
+silently fixed or silently ignored — the `lateral_offset_grid` hairpin
+degeneracy: a known, understood limitation, pinned by a test, not swept
+under the rug.
+"""
+function assemble_z_grid(z_grid::Matrix{Float64}, z_ref::Vector{Float64}, banking::Union{Vector{Float64},Nothing}, refline::ReferenceLineParams, v::Vector{Float64})
+    nu, nv = size(z_grid)
+    Z = Matrix{Float64}(undef, nu, nv)
+    vmin, vmax = first(v), last(v)
+    for i in 1:nu
+        bank_i = banking === nothing ? refline.start_banking : banking[i]
+        for j in 1:nv
+            vc = clamp(v[j], vmin, vmax)
+            Z[i,j] = z_grid[i,j] + z_ref[i] + bank_i * vc
+        end
+    end
+    return Z
+end

@@ -18,7 +18,7 @@ Markdown = "d6f4376e-aef5-505a-96c1-9c027394607a"
 ModelingToolkit = "961ee093-0014-501f-94e3-6117800e7a78"
 Moshi = "2e0e35c7-a2e4-4343-998d-7ef72827ed2d"
 MultibodyComponents = "01883e52-22cd-4538-b14d-b44f958a131d"
-# OpenCRG = "40a2bf50-15af-408a-8ff9-1cb7955b13ad"
+OpenCRG = "40a2bf50-15af-408a-8ff9-1cb7955b13ad"
 OrdinaryDiffEqDefault = "50262376-6c5a-4cf5-baba-aaf4f84d72d7"
 PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
 RotationalComponents = "824fa3ed-d7dc-4365-8bdf-ac77a1ac2011"
@@ -27,7 +27,7 @@ ThermalComponents = "084a29d9-4f48-4925-95b4-b7d4c79725f4"
 TranslationalComponents = "42acc370-819b-4877-bdd6-eb3294461f5d"
 
 [sources]
-# OpenCRG = {path = "lib/OpenCRG"}
+OpenCRG = {path = "lib/OpenCRG"}
 
 [compat]
 BlockComponents = "4.2.0"

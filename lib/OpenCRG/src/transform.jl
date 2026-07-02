@@ -190,31 +190,45 @@ itself). If there's no `banking` channel, `refline.start_banking` (default
 0.0, from `REFERENCE_LINE_START_B`) is used as a constant cross-slope for
 every row.
 
-**This clamp is a provable no-op on every real call path in this package.**
-In the C reference, `crgEvaluv2z` (`crgEvalz.c` lines ~574-588) is a
-*continuous point-query* evaluator: its query `v` (an arbitrary real, e.g.
-5.3) is a genuinely different quantity from `crgData->channelV.info.first`/
-`.last` (the channel's own declared, discrete v-axis) — so clamping the
-query to the channel's declared range is real, meaningful work. This
-package has no such split: it's a batched forward transform only (see the
-design doc — "no per-point Newton-iteration inversion ... forward-only"),
-so there is exactly one `v` in play. `road_surface_grid` always calls
-`assemble_z_grid(d.z, z_ref, d.banking, d.refline, d.v)` with the very same
-`d.v` that `d.z`'s own columns were built against in `assemble_channels`
-(Task 9), which always returns `v` sorted ascending (`sortperm`). For any
-sorted-ascending `v`, `first(v)` and `last(v)` are exactly its min and max,
-so `clamp(v[j], first(v), last(v)) == v[j]` for every `j` — always, by
-construction, not merely by observation. The clamp is kept anyway
-(unconditionally, per this task's implementation) because it's harmless,
-free, and mirrors the upstream reference's defensive intent — see
-`test_transform.jl`'s `assemble_z_grid` testset, which pins both (a) this
-no-op behavior on realistic (sorted) `v`, and (b) the clamp's literal
-arithmetic via a synthetic non-monotonic `v` that the real pipeline never
-produces but which still exercises the `clamp(...)` line for regression
-purposes. This mirrors how Task 13's review documented — rather than
-silently fixed or silently ignored — the `lateral_offset_grid` hairpin
-degeneracy: a known, understood limitation, pinned by a test, not swept
-under the rug.
+**This clamp is a provable no-op on every real call path in this package**
+— UPDATED for Task 16's `apply_mods`, which now sits between
+`assemble_channels` and this function in `road_surface_grid`'s actual call
+chain (`d = apply_mods(data)`, then `assemble_z_grid(d.z, z_ref, d.banking,
+d.refline, d.v)`). In the C reference, `crgEvaluv2z` (`crgEvalz.c` lines
+~574-588) is a *continuous point-query* evaluator: its query `v` (an
+arbitrary real, e.g. 5.3) is a genuinely different quantity from
+`crgData->channelV.info.first`/`.last` (the channel's own declared, discrete
+v-axis) — so clamping the query to the channel's declared range is real,
+meaningful work. This package has no such split: it's a batched forward
+transform only (see the design doc — "no per-point Newton-iteration
+inversion ... forward-only"), so there is exactly one `v` in play, and
+`assemble_z_grid` is always called with the same `v` its own `z_grid`
+argument's columns correspond to.
+That `v` traces back to `assemble_channels` (Task 9), which always returns
+`v` sorted ascending (`sortperm`) with `z`'s columns permuted to match --
+but by the time `road_surface_grid` calls `assemble_z_grid`, `apply_mods`
+(Task 16) has had a chance to touch `v` too, via `SCALE_WIDTH`
+(`v .*= mods.scale_width`). A uniform multiplicative rescale by a *positive*
+factor cannot change the relative order of a sorted array, so the
+ascending/matches-`z`'s-columns invariant survives (confirmed by a dedicated
+regression test, `test_transform.jl`'s `"SCALE_WIDTH preserves the
+v-ascending / z-column invariant..."`); this package does not guard against
+a zero or negative `SCALE_WIDTH`, which would violate it — matching the C
+reference, which also does not guard against that case (`crgDataScaleChannel`
+in `crgMgr.c` scales `channelV`'s values unconditionally, with no sign check).
+For any sorted-ascending `v`, `first(v)` and `last(v)` are exactly its min
+and max, so `clamp(v[j], first(v), last(v)) == v[j]` for every `j` — always,
+for any positive-`SCALE_WIDTH`-or-absent call path, not merely by
+observation. The clamp is kept anyway (unconditionally, per this task's
+implementation) because it's harmless, free, and mirrors the upstream
+reference's defensive intent — see `test_transform.jl`'s `assemble_z_grid`
+testset, which pins both (a) this no-op behavior on realistic (sorted) `v`,
+and (b) the clamp's literal arithmetic via a synthetic non-monotonic `v`
+that the real pipeline never produces but which still exercises the
+`clamp(...)` line for regression purposes. This mirrors how Task 13's
+review documented — rather than silently fixed or silently ignored — the
+`lateral_offset_grid` hairpin degeneracy (since fixed in Task 17): a known,
+understood limitation, pinned by a test, not swept under the rug.
 """
 function assemble_z_grid(z_grid::Matrix{Float64}, z_ref::Vector{Float64}, banking::Union{Vector{Float64},Nothing}, refline::ReferenceLineParams, v::Vector{Float64})
     nu, nv = size(z_grid)
@@ -228,4 +242,121 @@ function assemble_z_grid(z_grid::Matrix{Float64}, z_ref::Vector{Float64}, bankin
         end
     end
     return Z
+end
+
+"""
+    apply_mods(data::CRGData) -> CRGData
+
+Apply `\$ROAD_CRG_MODS`, returning a new `CRGData` with adjusted raw
+channels. Order matches the reference implementation
+(`crgDataSetModifiersApply` in `crgMgr.c`): scale channels first (z-grid,
+slope, banking, length, width, curvature), then a single rotate+translate.
+
+Key insight that keeps this simple: rotating every `phi` value by a
+constant angle rotates the *shape* of the eventually-integrated reference
+line by that same angle, because `(cos(a+θ), sin(a+θ)) = R(θ)·(cos a, sin a)`
+— so only `refline.start_x/start_y` (rotated about the pivot, then
+translated) and `phi` itself need to change here. There's no need to
+integrate the reference line inside this function at all, EXCEPT for the
+`REFPOINT_*` case, which needs to evaluate the CURRENT (pre-transform)
+position at a specific `(u,v)` to know what point is being pinned down.
+
+`REFPOINT_*` (if ANY such field is set) takes over the rotate+translate
+step entirely, ignoring `REFLINE_OFFSET_*`/`REFLINE_ROTCENTER_*` completely
+— they do not compose, matching `crgDataApplyTransformations` in `crgMgr.c`:
+`applyXform` is set to 1 by any of the `dCrgModRefPoint{X,Y,Z,Phi,U,UFrac,V,VFrac}`
+checks, and the whole `REFLINE_OFFSET_*`/`REFLINE_ROTCENTER_*` block is
+gated behind `if (!applyXform)` — i.e. it runs at all only when NONE of
+those `REFPOINT_*` fields were present. Confirmed directly against that
+source (`lib/LibOpenCRG/csrc/src/crgMgr.c`, `crgDataApplyTransformations`,
+~lines 804-922) rather than assumed.
+
+Deliberately NOT touched by any `SCALE_*` here: `v` only moves under
+`SCALE_WIDTH`, and only by a uniform multiplicative factor — this preserves
+(assuming a positive scale factor, the only physically sensible one for a
+road width) the invariant `assemble_z_grid` (Task 14) depends on, that `v`
+stays sorted ascending and still lines up 1:1 with `z`'s columns (Task 9's
+`sortperm` guarantee is about relative order, which scaling by a positive
+constant can't disturb). See `test_transform.jl`'s
+`"SCALE_WIDTH preserves the v-ascending / z-column invariant..."` regression
+test.
+
+Deliberately NOT applied: `mods.grid_nan_mode`/`mods.grid_nan_offset` (parsed
+by Task 6, real behavior in `crgMgr.c` around line 601) control how NaN gaps
+in the z-grid get filled/replaced — a data-cleaning concern, not the
+scale/offset/rotate geometry transform this task's scope was explicitly
+limited to. Same deferral treatment as `\$ROAD_CRG_MPRO` (Task 5's design
+doc note) — parsed and available on `RoadCrgMods`, never auto-applied.
+"""
+function apply_mods(data::CRGData)
+    mods = data.mods
+    r = data.refline
+    phi = copy(data.phi)
+    z = copy(data.z)
+    slope = data.slope === nothing ? nothing : copy(data.slope)
+    banking = data.banking === nothing ? nothing : copy(data.banking)
+    v = copy(data.v)
+    u_increment, start_slope, end_slope, start_banking, end_banking =
+        r.increment, r.start_slope, r.end_slope, r.start_banking, r.end_banking
+
+    mods.scale_z_grid === nothing || (z .*= mods.scale_z_grid)
+    if mods.scale_slope !== nothing
+        slope === nothing || (slope .*= mods.scale_slope)
+        start_slope *= mods.scale_slope
+        end_slope = end_slope === nothing ? nothing : end_slope * mods.scale_slope
+    end
+    if mods.scale_banking !== nothing
+        banking === nothing || (banking .*= mods.scale_banking)
+        start_banking *= mods.scale_banking
+        end_banking = end_banking === nothing ? nothing : end_banking * mods.scale_banking
+    end
+    mods.scale_length === nothing || (u_increment *= mods.scale_length)
+    mods.scale_width === nothing || (v .*= mods.scale_width)
+    if mods.scale_curvature !== nothing
+        base = phi[1]
+        for i in 2:length(phi)
+            phi[i] = base + mods.scale_curvature * (phi[i] - base)
+        end
+    end
+
+    r2 = ReferenceLineParams(r.start_u, r.end_u, u_increment, r.start_x, r.start_y, r.start_phi,
+        r.end_x, r.end_y, r.end_phi, r.start_z, r.end_z, r.v_right, r.v_left, r.v_increment,
+        start_slope, end_slope, start_banking, end_banking)
+
+    has_refpoint = any(f -> getfield(mods, f) !== nothing, (:refpoint_u, :refpoint_u_fraction,
+        :refpoint_u_offset, :refpoint_v, :refpoint_v_fraction, :refpoint_v_offset,
+        :refpoint_x, :refpoint_y, :refpoint_z, :refpoint_phi))
+
+    if has_refpoint
+        x0, y0 = integrate_reference_line(r2, phi)
+        u_frac, u_off = something(mods.refpoint_u_fraction, 0.0), something(mods.refpoint_u_offset, 0.0)
+        u_pos = something(mods.refpoint_u, r2.start_u + u_frac * (r2.end_u - r2.start_u) + u_off)
+        idx = clamp(round(Int, (u_pos - r2.start_u) / u_increment) + 1, 1, length(phi))
+        from_x, from_y, from_phi = x0[idx], y0[idx], phi[idx]
+        rot_center = (from_x, from_y)
+        rot_angle = something(mods.refpoint_phi, 0.0) - from_phi
+        translation = (something(mods.refpoint_x, 0.0) - from_x, something(mods.refpoint_y, 0.0) - from_y)
+    else
+        rot_center = (something(mods.refline_rotcenter_x, r2.start_x), something(mods.refline_rotcenter_y, r2.start_y))
+        rot_angle = something(mods.refline_offset_phi, 0.0)
+        translation = (something(mods.refline_offset_x, 0.0), something(mods.refline_offset_y, 0.0))
+    end
+
+    c, s = cos(rot_angle), sin(rot_angle)
+    dx, dy = r2.start_x - rot_center[1], r2.start_y - rot_center[2]
+    new_start_x = rot_center[1] + dx*c - dy*s + translation[1]
+    new_start_y = rot_center[2] + dx*s + dy*c + translation[2]
+    new_start_phi = r2.start_phi + rot_angle
+    phi .+= rot_angle
+    new_start_z = r2.start_z + something(mods.refline_offset_z, 0.0)
+    new_end_z = r2.end_z === nothing ? nothing : r2.end_z + something(mods.refline_offset_z, 0.0)
+    new_end_x = r2.end_x === nothing ? nothing : rot_center[1] + (r2.end_x-rot_center[1])*c - (r2.end_y-rot_center[2])*s + translation[1]
+    new_end_y = r2.end_y === nothing ? nothing : rot_center[2] + (r2.end_x-rot_center[1])*s + (r2.end_y-rot_center[2])*c + translation[2]
+    new_end_phi = r2.end_phi === nothing ? nothing : r2.end_phi + rot_angle
+
+    r3 = ReferenceLineParams(r2.start_u, r2.end_u, r2.increment, new_start_x, new_start_y, new_start_phi,
+        new_end_x, new_end_y, new_end_phi, new_start_z, new_end_z,
+        r2.v_right, r2.v_left, r2.v_increment, r2.start_slope, r2.end_slope, r2.start_banking, r2.end_banking)
+
+    return CRGData(data.comment, r3, data.format_code, data.opts, mods, data.mpro, phi, banking, slope, v, z)
 end

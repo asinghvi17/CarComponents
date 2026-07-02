@@ -315,3 +315,144 @@ end
         @test !isapprox(Z[1, 2], z_grid[1,2] + z_ref[1] + 1.0 * 5.0)   # sanity: distinguishable from the unclamped value
     end
 end
+
+using LibOpenCRG
+
+@testset "apply_mods" begin
+    @testset "no mods: identity (road_surface_grid unaffected)" begin
+        data = OpenCRG.read_crg(joinpath(DATA, "handmade_curved_minimalist.crg"))
+        d2 = OpenCRG.apply_mods(data)
+        @test d2.phi == data.phi
+        @test d2.refline.start_x == data.refline.start_x
+    end
+
+    @testset "REFLINE_OFFSET_*: rotate then translate, cross-validated against LibOpenCRG" begin
+        path = joinpath(DATA, "handmade_curved_minimalist.crg")
+        data = OpenCRG.read_crg(path)
+        mods = OpenCRG.RoadCrgMods(refline_offset_phi=1.57, refline_offset_x=100.0, refline_offset_y=50.0)
+        data_with_mods = OpenCRG.CRGData(data.comment, data.refline, data.format_code, data.opts, mods,
+                                          data.mpro, data.phi, data.banking, data.slope, data.v, data.z)
+        u, v, X, Y, Z = OpenCRG.road_surface_grid(data_with_mods)
+
+        dsId = crgLoaderReadFile(path)
+        # crgLoaderReadFile seeds dCrgModRefPointX/Y/Z/Phi defaults (via
+        # crgOptionSetDefaultModifiers), and crgDataApplyTransformations checks
+        # for ANY dCrgModRefPoint* entry BEFORE dCrgModRefLineOffset*, silently
+        # short-circuiting the offset modifiers below if not cleared first --
+        # this exact bug was found and fixed in Task 15's own test; see the
+        # crgDataSetModifiersApply docstring in lib/LibOpenCRG/src/LibOpenCRG.jl.
+        @test crgDataSetModifierRemoveAll(dsId) != 0
+        @test crgDataSetModifierSetDouble(dsId, LibOpenCRG.dCrgModRefLineOffsetPhi, 1.57) != 0
+        @test crgDataSetModifierSetDouble(dsId, LibOpenCRG.dCrgModRefLineOffsetX, 100.0) != 0
+        @test crgDataSetModifierSetDouble(dsId, LibOpenCRG.dCrgModRefLineOffsetY, 50.0) != 0
+        crgDataSetModifiersApply(dsId)
+        cpId = crgContactPointCreate(dsId)
+        for i in eachindex(u), j in eachindex(v)
+            ref = crgEvaluv2xy(cpId, u[i], v[j])
+            @test ref.status != 0
+            @test X[i,j] ≈ ref.x atol=1e-6
+            @test Y[i,j] ≈ ref.y atol=1e-6
+        end
+        crgContactPointDelete(cpId); crgDataSetRelease(dsId); crgMemRelease()
+    end
+
+    @testset "REFPOINT_* overrides REFLINE_OFFSET_*/REFLINE_ROTCENTER_* entirely, cross-validated" begin
+        # apply_mods's docstring claims REFPOINT_* (if ANY such field is set)
+        # takes over the rotate+translate step entirely, ignoring
+        # REFLINE_OFFSET_*/REFLINE_ROTCENTER_* completely -- matching
+        # `crgDataApplyTransformations` in crgMgr.c, where `applyXform` is set
+        # by any of the `dCrgModRefPoint{X,Y,Z,Phi,U,UFrac,V,VFrac}` checks, and
+        # the WHOLE REFLINE_OFFSET_*/ROTCENTER_* block only runs `if (!applyXform)`.
+        # No test anywhere in this package actually exercised a REFPOINT_* field
+        # before this one -- confirmed by reading crgDataApplyTransformations
+        # directly (lib/LibOpenCRG/csrc/src/crgMgr.c, ~lines 804-922), then
+        # closed here with a real cross-validation: refline_offset_*/rotcenter_*
+        # are set to deliberately wild, easy-to-notice values (999.0, -999.0,
+        # a 3.0 rad rotation, rotcenter far from the line) alongside a
+        # refpoint_x/y/phi -- if has_refpoint's short-circuit were broken (e.g.
+        # composing both instead of ignoring one), the result would be wildly
+        # off from the C oracle, not subtly off.
+        path = joinpath(DATA, "handmade_curved_minimalist.crg")
+        data = OpenCRG.read_crg(path)
+        mods = OpenCRG.RoadCrgMods(
+            refpoint_x=10.0, refpoint_y=20.0, refpoint_phi=0.5,
+            refline_offset_x=999.0, refline_offset_y=-999.0, refline_offset_phi=3.0,
+            refline_rotcenter_x=-500.0, refline_rotcenter_y=500.0,
+        )
+        data_with_mods = OpenCRG.CRGData(data.comment, data.refline, data.format_code, data.opts, mods,
+                                          data.mpro, data.phi, data.banking, data.slope, data.v, data.z)
+        u, v, X, Y, Z = OpenCRG.road_surface_grid(data_with_mods)
+        # refpoint_u/refpoint_u_fraction/refpoint_v/refpoint_v_fraction are all
+        # unset, so the "from" point defaults to (u,v) = (start_u, 0) on BOTH
+        # sides, matching crgDataApplyTransformations's own default (`uPos =
+        # crgData->channelU.info.first; vPos = 0.0;`) -- so the reference line's
+        # start point should land exactly on (refpoint_x, refpoint_y) with
+        # heading refpoint_phi.
+        d2 = OpenCRG.apply_mods(data_with_mods)
+        @test d2.refline.start_x ≈ 10.0
+        @test d2.refline.start_y ≈ 20.0
+        @test d2.refline.start_phi ≈ 0.5
+
+        dsId = crgLoaderReadFile(path)
+        @test crgDataSetModifierRemoveAll(dsId) != 0
+        @test crgDataSetModifierSetDouble(dsId, LibOpenCRG.dCrgModRefPointX, 10.0) != 0
+        @test crgDataSetModifierSetDouble(dsId, LibOpenCRG.dCrgModRefPointY, 20.0) != 0
+        @test crgDataSetModifierSetDouble(dsId, LibOpenCRG.dCrgModRefPointPhi, 0.5) != 0
+        @test crgDataSetModifierSetDouble(dsId, LibOpenCRG.dCrgModRefLineOffsetX, 999.0) != 0
+        @test crgDataSetModifierSetDouble(dsId, LibOpenCRG.dCrgModRefLineOffsetY, -999.0) != 0
+        @test crgDataSetModifierSetDouble(dsId, LibOpenCRG.dCrgModRefLineOffsetPhi, 3.0) != 0
+        @test crgDataSetModifierSetDouble(dsId, LibOpenCRG.dCrgModRefLineRotCenterX, -500.0) != 0
+        @test crgDataSetModifierSetDouble(dsId, LibOpenCRG.dCrgModRefLineRotCenterY, 500.0) != 0
+        crgDataSetModifiersApply(dsId)
+        cpId = crgContactPointCreate(dsId)
+        for i in eachindex(u), j in eachindex(v)
+            ref = crgEvaluv2xy(cpId, u[i], v[j])
+            @test ref.status != 0
+            @test X[i,j] ≈ ref.x atol=1e-6
+            @test Y[i,j] ≈ ref.y atol=1e-6
+        end
+        crgContactPointDelete(cpId); crgDataSetRelease(dsId); crgMemRelease()
+    end
+
+    @testset "SCALE_Z_GRID doubles elevation" begin
+        data = OpenCRG.read_crg(joinpath(DATA, "handmade_curved_banked_sloped.crg"))
+        mods = OpenCRG.RoadCrgMods(scale_z_grid=2.0)
+        data_with_mods = OpenCRG.CRGData(data.comment, data.refline, data.format_code, data.opts, mods,
+                                          data.mpro, data.phi, data.banking, data.slope, data.v, data.z)
+        d2 = OpenCRG.apply_mods(data_with_mods)
+        # NOT plain `≈` here: this real fixture genuinely has 3 NaN samples
+        # scattered in its z data (border columns at rows 12/14/16 -- confirmed
+        # by direct inspection, `count(isnan, data.z) == 3`), and whole-array
+        # `isapprox` is norm-based (`norm(d2.z - 2.0.*data.z) <= atol + ...`):
+        # a NaN anywhere in the difference poisons the norm to NaN, which is
+        # never `<=` anything, so the plan's original `d2.z ≈ 2.0 .* data.z`
+        # fails even though every entry -- NaN included, since NaN*2.0 is still
+        # NaN at the same position on both sides -- is exactly what it should
+        # be. `isequal` is exact (not approximate) but that's fine: `.*=` here
+        # is a single scalar multiply, bit-for-bit identical to `2.0 .* data.z`,
+        # and `isequal`'s NaN-as-equal-to-itself semantics is exactly what's
+        # needed to compare the missing-sample positions correctly.
+        @test isequal(d2.z, 2.0 .* data.z)
+    end
+
+    @testset "SCALE_WIDTH preserves the v-ascending / z-column invariant assemble_z_grid relies on" begin
+        # Task 14's review flagged that assemble_z_grid's banking clamp is only a
+        # documented no-op because CRGData.v is always sorted ascending and lines
+        # up 1:1 with CRGData.z's columns (Task 9's sortperm guarantee). apply_mods
+        # is the only place in this task that touches `v` at all (via
+        # SCALE_WIDTH), so this regression-tests that a (positive) width scale
+        # can't desync that invariant: v must stay sorted ascending, and each
+        # column of z must still correspond to the same (scaled) v it did before.
+        data = OpenCRG.read_crg(joinpath(DATA, "handmade_curved_banked_sloped.crg"))
+        mods = OpenCRG.RoadCrgMods(scale_width=2.0)
+        data_with_mods = OpenCRG.CRGData(data.comment, data.refline, data.format_code, data.opts, mods,
+                                          data.mpro, data.phi, data.banking, data.slope, data.v, data.z)
+        d2 = OpenCRG.apply_mods(data_with_mods)
+        @test d2.v ≈ 2.0 .* data.v
+        @test issorted(d2.v)
+        # isequal, not ==: this fixture has real NaN samples (see the
+        # SCALE_Z_GRID testset above) and plain `==` treats NaN != NaN even in
+        # the exact-same-position, exact-same-untouched-value case here.
+        @test isequal(d2.z, data.z)   # z itself is untouched -- only the v labels attached to its columns change
+    end
+end

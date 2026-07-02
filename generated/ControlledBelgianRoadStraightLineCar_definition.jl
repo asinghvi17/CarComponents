@@ -7,13 +7,13 @@
 import Moshi as __Ext__Moshi
 
 @doc Markdown.doc"""
-   ControlledBelgianRoadStraightLineCar(; name, wheel_elastic_contact, chassis_bushings, road_profile, wheel_base, ms, rod_radius, path_z_ref, steer_limit, heading_gain, lateral_gain)
+   ControlledBelgianRoadStraightLineCar(; name, wheel_elastic_contact, chassis_bushings, road_surface, wheel_base, ms, rod_radius, path_z_ref, steer_limit, heading_gain, lateral_gain)
 
 Belgian-block-road car with a separate straight-line steering controller.
 
 This extends `FullCar` rather than nesting it so the multibody `World` remains at
-the top level. The inherited `FullCar` equations plus road-profile equations are
-the car+road plant, while `controller` is a separate causal subsystem coupled
+the top level. The inherited `FullCar` equations plus 2D road-surface equations
+are the car+road plant, while `controller` is a separate causal subsystem coupled
 only through measured chassis pose and commanded steering angle.
 
 ## Parameters:
@@ -22,7 +22,7 @@ only through measured chassis pose and commanded steering angle.
 | ------------ | ----------------------------------- | ------ | --------------- |
 | `wheel_elastic_contact`         | Use compliant tire contact on all four corners.                         | --  |   false |
 | `chassis_bushings`         | Mount each suspension corner to the chassis through a compliant 6-DOF Bushing.                         | --  |   false |
-| `road_profile`         | Callable longitudinal road-height profile [m]                         | --  |   CarComponen...erpolator() |
+| `road_surface`         | Callable road-height surface y = f(x, z) [m]                         | --  |   CarComponen...erpolator() |
 | `wheel_base`         | Wheelbase / track distance [m]                         | --  |   1 |
 | `ms`         | Mass of the car [kg]                         | kg  |   1500 |
 | `rod_radius`         | Radius of the rods                         | --  |   0.02 |
@@ -43,8 +43,12 @@ only through measured chassis pose and commanded steering angle.
  * `wheel_position_fl` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `wheel_position_br` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `wheel_position_bl` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
+ * `wheel_lateral_position_fr` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
+ * `wheel_lateral_position_fl` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
+ * `wheel_lateral_position_br` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
+ * `wheel_lateral_position_bl` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function ControlledBelgianRoadStraightLineCar(; name = nothing, wheel_elastic_contact=false, chassis_bushings=false, road_profile=CarComponents.belgian_block_centerline_profile_interpolator(), wheel_base=Float64(1), ms=Float64(1500), rod_radius=0.02, path_z_ref=Float64(0.0), steer_limit=0.25, heading_gain=0.8, lateral_gain=0.25, kwargs...)
+@component function ControlledBelgianRoadStraightLineCar(; name = nothing, wheel_elastic_contact=false, chassis_bushings=false, road_surface=CarComponents.belgian_block_surface_interpolator(), wheel_base=Float64(1), ms=Float64(1500), rod_radius=0.02, path_z_ref=Float64(0.0), steer_limit=0.25, heading_gain=0.8, lateral_gain=0.25, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -63,7 +67,7 @@ only through measured chassis pose and commanded steering angle.
   __bindings = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
 
   ### Structural Parameters (functions)
-  road_profileˍ₋value = CarComponents.belgian_block_centerline_profile_interpolator()
+  road_surfaceˍ₋value = CarComponents.belgian_block_surface_interpolator()
 
   ### Structural Parameters (Final)
 
@@ -113,6 +117,10 @@ only through measured chassis pose and commanded steering angle.
   append!(__vars, @variables (wheel_position_fl(t)::Real), [output = true])
   append!(__vars, @variables (wheel_position_br(t)::Real), [output = true])
   append!(__vars, @variables (wheel_position_bl(t)::Real), [output = true])
+  append!(__vars, @variables (wheel_lateral_position_fr(t)::Real), [output = true])
+  append!(__vars, @variables (wheel_lateral_position_fl(t)::Real), [output = true])
+  append!(__vars, @variables (wheel_lateral_position_br(t)::Real), [output = true])
+  append!(__vars, @variables (wheel_lateral_position_bl(t)::Real), [output = true])
 
   ### Variables (declarations)
 
@@ -171,10 +179,14 @@ only through measured chassis pose and commanded steering angle.
   push!(__eqs, wheel_position_fl ~ excited_suspension_fl.wheel_position)
   push!(__eqs, wheel_position_br ~ excited_suspension_br.wheel_position)
   push!(__eqs, wheel_position_bl ~ excited_suspension_bl.wheel_position)
-  push!(__eqs, road_height_fr ~ road_profile(wheel_position_fr))
-  push!(__eqs, road_height_fl ~ road_profile(wheel_position_fl))
-  push!(__eqs, road_height_br ~ road_profile(wheel_position_br))
-  push!(__eqs, road_height_bl ~ road_profile(wheel_position_bl))
+  push!(__eqs, wheel_lateral_position_fr ~ excited_suspension_fr.wheel_lateral_position)
+  push!(__eqs, wheel_lateral_position_fl ~ excited_suspension_fl.wheel_lateral_position)
+  push!(__eqs, wheel_lateral_position_br ~ excited_suspension_br.wheel_lateral_position)
+  push!(__eqs, wheel_lateral_position_bl ~ excited_suspension_bl.wheel_lateral_position)
+  push!(__eqs, road_height_fr ~ road_surface(wheel_position_fr, wheel_lateral_position_fr))
+  push!(__eqs, road_height_fl ~ road_surface(wheel_position_fl, wheel_lateral_position_fl))
+  push!(__eqs, road_height_br ~ road_surface(wheel_position_br, wheel_lateral_position_br))
+  push!(__eqs, road_height_bl ~ road_surface(wheel_position_bl, wheel_lateral_position_bl))
   push!(__eqs, controller.z ~ getindex(getproperty(getproperty(back_front, :body), :r_0), 3))
   push!(__eqs, controller.heading ~ -getindex(getproperty(getproperty(back_front, :body), :phi), 2))
   push!(__eqs, steer_angle_fr ~ controller.steer_angle)

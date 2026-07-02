@@ -12,8 +12,8 @@ import Moshi as __Ext__Moshi
 Local copy of the MultibodyComponents suspension wheel assembly.
 
 The original assembly generated the road height internally as a sine wave. This
-copy exposes the road height as a RealInput and exposes the wheel contact x
-position as a RealOutput.
+copy exposes the road height as an external variable and exposes the wheel contact
+x/z position.
 
 ## Parameters:
 
@@ -41,6 +41,7 @@ connectors that can be connected together ([`Frame3D`](@ref))
 | ------------ | ----------------------------------- | ------ |
 | `road_height`         | Road/contact height for this wheel                         | m  |
 | `wheel_position`         | Wheel contact x-position                         | m  |
+| `wheel_lateral_position`         | Wheel contact z-position                         | m  |
 | `steer_angle`         | Steering angle about the vertical axis                         | rad  |
 """
 @component function ExcitedWheelAssembly(; name = nothing, positive_branch=true, spring=true, mirror=false, steering=false, iscut=true, angular_state=true, elastic_contact=false, elastic_mount=false, steering_f_crit=Float64(20), rod_radius=0.02, kwargs...)
@@ -92,6 +93,7 @@ connectors that can be connected together ([`Frame3D`](@ref))
   ### Variables (declarations)
   append!(__vars, @variables (road_height(t)::Real), [description = "Road/contact height for this wheel"])
   append!(__vars, @variables (wheel_position(t)::Real), [description = "Wheel contact x-position"])
+  append!(__vars, @variables (wheel_lateral_position(t)::Real), [description = "Wheel contact z-position"])
   append!(__vars, @variables (steer_angle(t)::Real), [description = "Steering angle about the vertical axis"])
 
   ### Variables (assignments)
@@ -99,6 +101,8 @@ connectors that can be connected together ([`Frame3D`](@ref))
   __ovr_road_height__initial = pop!(__overrides, "road_height__initial", nothing); isnothing(__ovr_road_height__initial) || (__initial_conditions[road_height] = __ovr_road_height__initial)
   __ovr_wheel_position = pop!(__overrides, "wheel_position", nothing); isnothing(__ovr_wheel_position) || push!(__eqs, wheel_position ~ __ovr_wheel_position)
   __ovr_wheel_position__initial = pop!(__overrides, "wheel_position__initial", nothing); isnothing(__ovr_wheel_position__initial) || (__initial_conditions[wheel_position] = __ovr_wheel_position__initial)
+  __ovr_wheel_lateral_position = pop!(__overrides, "wheel_lateral_position", nothing); isnothing(__ovr_wheel_lateral_position) || push!(__eqs, wheel_lateral_position ~ __ovr_wheel_lateral_position)
+  __ovr_wheel_lateral_position__initial = pop!(__overrides, "wheel_lateral_position__initial", nothing); isnothing(__ovr_wheel_lateral_position__initial) || (__initial_conditions[wheel_lateral_position] = __ovr_wheel_lateral_position__initial)
   __ovr_steer_angle = pop!(__overrides, "steer_angle", nothing); isnothing(__ovr_steer_angle) || push!(__eqs, steer_angle ~ __ovr_steer_angle)
   __ovr_steer_angle__initial = pop!(__overrides, "steer_angle__initial", nothing); isnothing(__ovr_steer_angle__initial) || (__initial_conditions[steer_angle] = __ovr_steer_angle__initial)
 
@@ -149,6 +153,7 @@ connectors that can be connected together ([`Frame3D`](@ref))
   push!(__eqs, getindex(getproperty(getproperty(wheel, :surface_frame), :r_0), 2) ~ road_height)
   push!(__eqs, wheel.surface_frame.R ~ [1 0 0; 0 1 0; 0 0 1])
   push!(__eqs, wheel_position ~ getindex(getproperty(getproperty(wheel, :surface_frame), :r_0), 1))
+  push!(__eqs, wheel_lateral_position ~ getindex(getproperty(getproperty(wheel, :surface_frame), :r_0), 3))
   push!(__eqs, connect(wheel.frame_a, wheel_rotation.frame_b))
   push!(__eqs, connect(rotational_losses.spline_a, wheel_rotation.axis))
   push!(__eqs, connect(rotational_losses.spline_b, wheel_rotation.support))

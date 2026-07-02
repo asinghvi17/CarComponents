@@ -15,13 +15,13 @@ const VIDEO_PATH = joinpath(OUTDIR, "belgian_road_straight_car_with_suspension_d
 const PREVIEW_PATH = joinpath(OUTDIR, "belgian_road_straight_car_dashboard_preview.png")
 const G0 = 9.80665
 
-function compile_controlled_belgian_model(road_profile)
+function compile_controlled_belgian_model(road_surface)
     @named model = CarComponents.ControlledBelgianRoadStraightLineCar(
         wheel_elastic_contact = true,
         steer_limit = 0.25,
         heading_gain = 0.8,
         lateral_gain = 0.25,
-        road_profile = road_profile,
+        road_surface = road_surface,
     )
 
     reassemble_alg = ModelingToolkit.StructuralTransformations.DefaultReassembleAlgorithm(
@@ -39,7 +39,7 @@ function compile_controlled_belgian_model(road_profile)
     return model, sys
 end
 
-function initial_conditions(sys, road_profile; speed = 0.8, baseline = nothing)
+function initial_conditions(sys, road_surface; speed = 0.8, baseline = nothing)
     corners = [
         sys.excited_suspension_fr,
         sys.excited_suspension_fl,
@@ -58,7 +58,7 @@ function initial_conditions(sys, road_profile; speed = 0.8, baseline = nothing)
         push!(defs, corner.wheel_rotation.w => -dir * speed / 0.2)
     end
 
-    body_y0 = baseline === nothing ? 0.193 + road_profile(0.0) : baseline.body_y
+    body_y0 = baseline === nothing ? 0.193 + road_surface(0.0, 0.0) : baseline.body_y
 
     append!(defs, [
         sys.back_front.body.r_0[1] => 0.0,
@@ -88,10 +88,10 @@ function initial_conditions(sys, road_profile; speed = 0.8, baseline = nothing)
     return defs
 end
 
-function simulate_belgian_road(sys, road_profile; speed = 0.8, tstop = 12.0, save_dt = 1 / 60, baseline = nothing)
+function simulate_belgian_road(sys, road_surface; speed = 0.8, tstop = 12.0, save_dt = 1 / 60, baseline = nothing)
     prob = ODEProblem(
         sys,
-        initial_conditions(sys, road_profile; speed, baseline),
+        initial_conditions(sys, road_surface; speed, baseline),
         (0.0, tstop);
         optimize = :basic,
         saveat = save_dt,
@@ -113,22 +113,28 @@ function simulate_belgian_road(sys, road_profile; speed = 0.8, tstop = 12.0, sav
     return sol
 end
 
-function static_baseline(sys, road_profile; settle_time = 4.0)
-    sol = simulate_belgian_road(sys, road_profile; speed = 0.0, tstop = settle_time, save_dt = 1 / 60)
+function static_baseline(sys, road_surface; settle_time = 4.0)
+    sol = simulate_belgian_road(sys, road_surface; speed = 0.0, tstop = settle_time, save_dt = 1 / 60)
     t = sol.t[end]
 
     fr_x = sol(t; idxs = sys.wheel_position_fr)
     fl_x = sol(t; idxs = sys.wheel_position_fl)
     br_x = sol(t; idxs = sys.wheel_position_br)
     bl_x = sol(t; idxs = sys.wheel_position_bl)
+    fr_z = sol(t; idxs = sys.wheel_lateral_position_fr)
+    fl_z = sol(t; idxs = sys.wheel_lateral_position_fl)
+    br_z = sol(t; idxs = sys.wheel_lateral_position_br)
+    bl_z = sol(t; idxs = sys.wheel_lateral_position_bl)
     body_x = sol(t; idxs = sys.back_front.body.r_0[1])
+    body_z = sol(t; idxs = sys.back_front.body.r_0[3])
 
     return (
         body_y = sol(t; idxs = sys.back_front.body.r_0[2]),
         body_ay = sol(t; idxs = sys.back_front.body.a_0[2]),
         body_x = body_x,
-        road_body_center = road_profile(body_x),
-        road_wheel_average = (road_profile(fr_x) + road_profile(fl_x) + road_profile(br_x) + road_profile(bl_x)) / 4,
+        body_z = body_z,
+        road_body_center = road_surface(body_x, body_z),
+        road_wheel_average = (road_surface(fr_x, fr_z) + road_surface(fl_x, fl_z) + road_surface(br_x, br_z) + road_surface(bl_x, bl_z)) / 4,
         fr_s = sol(t; idxs = sys.excited_suspension_fr.suspension.springdamper.s),
         fl_s = sol(t; idxs = sys.excited_suspension_fl.suspension.springdamper.s),
         br_s = sol(t; idxs = sys.excited_suspension_br.suspension.springdamper.s),
@@ -136,13 +142,13 @@ function static_baseline(sys, road_profile; settle_time = 4.0)
     )
 end
 
-function road_mesh(road_profile; xspan = (-0.5, 10.5), zspan = (-1.2, 1.2), nx = 180, nz = 18)
+function road_mesh(road_surface; xspan = (-0.5, 10.5), zspan = (-1.4, 1.4), nx = 180, nz = 32)
     xs = range(xspan[1], xspan[2]; length = nx)
     zs = range(zspan[1], zspan[2]; length = nz)
 
     points = GLMakie.Point3f[]
     for z in zs, x in xs
-        push!(points, GLMakie.Point3f(Float32(x), Float32(road_profile(x)), Float32(z)))
+        push!(points, GLMakie.Point3f(Float32(x), Float32(road_surface(x, z)), Float32(z)))
     end
 
     faces = GLMakie.GeometryBasics.GLTriangleFace[]
@@ -158,22 +164,27 @@ function road_mesh(road_profile; xspan = (-0.5, 10.5), zspan = (-1.2, 1.2), nx =
     return GLMakie.GeometryBasics.Mesh(points, faces)
 end
 
-function dashboard_data(sys, sol, road_profile, baseline)
+function dashboard_data(sys, sol, road_surface, baseline)
     body_x = sol[sys.back_front.body.r_0[1]]
+    body_z = sol[sys.back_front.body.r_0[3]]
     fr_x = sol[sys.wheel_position_fr]
     fl_x = sol[sys.wheel_position_fl]
     br_x = sol[sys.wheel_position_br]
     bl_x = sol[sys.wheel_position_bl]
+    fr_z = sol[sys.wheel_lateral_position_fr]
+    fl_z = sol[sys.wheel_lateral_position_fl]
+    br_z = sol[sys.wheel_lateral_position_br]
+    bl_z = sol[sys.wheel_lateral_position_bl]
 
-    road_body_center_mm = [1000 * (road_profile(x) - baseline.road_body_center) for x in body_x]
+    road_body_center_mm = [1000 * (road_surface(body_x[i], body_z[i]) - baseline.road_body_center) for i in eachindex(body_x)]
     road_wheel_average_mm = [
-        1000 * ((road_profile(fr_x[i]) + road_profile(fl_x[i]) + road_profile(br_x[i]) + road_profile(bl_x[i])) / 4 - baseline.road_wheel_average)
+        1000 * ((road_surface(fr_x[i], fr_z[i]) + road_surface(fl_x[i], fl_z[i]) + road_surface(br_x[i], br_z[i]) + road_surface(bl_x[i], bl_z[i])) / 4 - baseline.road_wheel_average)
         for i in eachindex(body_x)
     ]
 
     return (
         body_x = body_x,
-        body_z = sol[sys.back_front.body.r_0[3]],
+        body_z = body_z,
         body_ay_g = (sol[sys.back_front.body.a_0[2]] .- baseline.body_ay) ./ G0,
         heading = -sol[sys.back_front.body.phi[2]],
         steer = sol[sys.controller.steer_angle],
@@ -192,8 +203,8 @@ function padded_limits(values; pad_fraction = 0.08, min_span = 1e-6)
     return lo - pad_fraction * span, hi + pad_fraction * span
 end
 
-function build_dashboard(model, sys, sol, road_profile, baseline; preview_time = 0.0)
-    data = dashboard_data(sys, sol, road_profile, baseline)
+function build_dashboard(model, sys, sol, road_surface, baseline; preview_time = 0.0)
+    data = dashboard_data(sys, sol, road_surface, baseline)
 
     fig, time_obs, scene = MultibodyComponents.render(
         model,
@@ -221,11 +232,12 @@ function build_dashboard(model, sys, sol, road_profile, baseline; preview_time =
         tellwidth = false,
     )
 
-    GLMakie.mesh!(scene, road_mesh(road_profile); color = (:gray65, 0.55), transparency = true)
+    GLMakie.mesh!(scene, road_mesh(road_surface); color = (:gray65, 0.55), transparency = true)
 
     road_x = range(0.0, 10.2; length = 300)
-    GLMakie.lines!(scene, road_x, road_profile.(road_x) .+ 0.025, zeros(length(road_x)); color = :deepskyblue, linewidth = 5)
-    GLMakie.lines!(scene, data.body_x, road_profile.(data.body_x) .+ 0.04, data.body_z; color = :orange, linewidth = 4)
+    road_y = [road_surface(x, 0.0) + 0.025 for x in road_x]
+    GLMakie.lines!(scene, road_x, road_y, zeros(length(road_x)); color = :deepskyblue, linewidth = 5)
+    GLMakie.lines!(scene, data.body_x, [road_surface(data.body_x[i], data.body_z[i]) + 0.04 for i in eachindex(data.body_x)], data.body_z; color = :orange, linewidth = 4)
 
     status = GLMakie.Observable("t = 0.00 s    x = 0.00 m    ay = 0.00 g")
     GLMakie.Label(side[1, 1], status; fontsize = 18, tellwidth = false, halign = :left)
@@ -234,10 +246,10 @@ function build_dashboard(model, sys, sol, road_profile, baseline; preview_time =
         side[2, 1];
         xlabel = "distance along road x [m]",
         ylabel = "relative road height [mm]",
-        title = "Road input relative to standing still",
+        title = "2D road input relative to standing still",
     )
     GLMakie.lines!(ax1, data.body_x, data.road_wheel_average_mm; color = :black, linewidth = 2, label = "average road under wheels")
-    GLMakie.lines!(ax1, data.body_x, data.road_body_center_mm; color = :gray45, linestyle = :dash, linewidth = 2, label = "road at chassis center")
+    GLMakie.lines!(ax1, data.body_x, data.road_body_center_mm; color = :gray45, linestyle = :dash, linewidth = 2, label = "road at chassis X-Z")
     GLMakie.axislegend(ax1; position = :lb, labelsize = 12)
     GLMakie.xlims!(ax1, 0, 10.2)
     GLMakie.ylims!(ax1, padded_limits(vcat(data.road_wheel_average_mm, data.road_body_center_mm))...)
@@ -293,18 +305,23 @@ function build_dashboard(model, sys, sol, road_profile, baseline; preview_time =
 
     function update_markers!(time)
         x = sol(time; idxs = sys.back_front.body.r_0[1])
+        z = sol(time; idxs = sys.back_front.body.r_0[3])
         fr_x = sol(time; idxs = sys.wheel_position_fr)
         fl_x = sol(time; idxs = sys.wheel_position_fl)
         br_x = sol(time; idxs = sys.wheel_position_br)
         bl_x = sol(time; idxs = sys.wheel_position_bl)
-        road_average_mm = 1000 * ((road_profile(fr_x) + road_profile(fl_x) + road_profile(br_x) + road_profile(bl_x)) / 4 - baseline.road_wheel_average)
+        fr_z = sol(time; idxs = sys.wheel_lateral_position_fr)
+        fl_z = sol(time; idxs = sys.wheel_lateral_position_fl)
+        br_z = sol(time; idxs = sys.wheel_lateral_position_br)
+        bl_z = sol(time; idxs = sys.wheel_lateral_position_bl)
+        road_average_mm = 1000 * ((road_surface(fr_x, fr_z) + road_surface(fl_x, fl_z) + road_surface(br_x, br_z) + road_surface(bl_x, bl_z)) / 4 - baseline.road_wheel_average)
         ay_g = (sol(time; idxs = sys.back_front.body.a_0[2]) - baseline.body_ay) / G0
 
         x_marker[] = [x]
         t_marker[] = [time]
         road_marker[] = [road_average_mm]
         accel_marker[] = [ay_g]
-        status[] = "t = $(round(time, digits = 2)) s    x = $(round(x, digits = 2)) m    ay = $(round(ay_g, digits = 2)) g"
+        status[] = "t = $(round(time, digits = 2)) s    x = $(round(x, digits = 2)) m    z = $(round(z, digits = 3)) m    ay = $(round(ay_g, digits = 2)) g"
     end
 
     update_markers!(preview_time)
@@ -325,21 +342,21 @@ function main(; output = VIDEO_PATH, speed = 0.8, tstop = 12.0, static_settle_ti
     mkpath(OUTDIR)
     GLMakie.activate!()
 
-    road_profile = CarComponents.belgian_block_centerline_profile_interpolator()
+    road_surface = CarComponents.belgian_block_surface_interpolator()
 
     println("Compiling controlled Belgian-road car...")
-    model, sys = compile_controlled_belgian_model(road_profile)
+    model, sys = compile_controlled_belgian_model(road_surface)
     println("Compiled: $(length(unknowns(sys))) unknowns, $(length(equations(sys))) equations")
 
     println("Finding standing-still baseline...")
-    baseline = static_baseline(sys, road_profile; settle_time = static_settle_time)
+    baseline = static_baseline(sys, road_surface; settle_time = static_settle_time)
 
     println("Simulating moving run...")
-    sol = simulate_belgian_road(sys, road_profile; speed, tstop, save_dt = 1 / 60, baseline)
+    sol = simulate_belgian_road(sys, road_surface; speed, tstop, save_dt = 1 / 60, baseline)
     println("Simulation retcode: $(sol.retcode), samples: $(length(sol.t))")
 
     println("Building dashboard...")
-    fig, time_obs, update_markers! = build_dashboard(model, sys, sol, road_profile, baseline)
+    fig, time_obs, update_markers! = build_dashboard(model, sys, sol, road_surface, baseline)
     GLMakie.save(PREVIEW_PATH, fig)
     println("Preview saved to $PREVIEW_PATH")
 

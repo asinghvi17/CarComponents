@@ -9,10 +9,11 @@ import Moshi as __Ext__Moshi
 @doc Markdown.doc"""
    FullCar(; name, wheel_elastic_contact, chassis_bushings, wheel_base, ms, rod_radius)
 
-Local copy of the MultibodyComponents full car with external road-height ports.
+Local copy of the MultibodyComponents full car with external road-surface ports.
 
-Each wheel has one RealOutput for contact x-position and one RealInput for road
-height at that wheel.
+Each wheel has RealOutputs for contact x/z position and one RealInput for road
+height at that wheel. The tire contact frame remains horizontal; the tire model
+is assumed to handle local road orientation effects.
 
 ## Parameters:
 
@@ -36,6 +37,10 @@ height at that wheel.
  * `wheel_position_fl` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `wheel_position_br` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `wheel_position_bl` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
+ * `wheel_lateral_position_fr` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
+ * `wheel_lateral_position_fl` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
+ * `wheel_lateral_position_br` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
+ * `wheel_lateral_position_bl` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
 @component function FullCar(; name = nothing, wheel_elastic_contact=false, chassis_bushings=false, wheel_base=Float64(1), ms=Float64(1500), rod_radius=0.02, kwargs...)
   isnothing(name) && throw(ArgumentError("""
@@ -93,6 +98,10 @@ height at that wheel.
   append!(__vars, @variables (wheel_position_fl(t)::Real), [output = true])
   append!(__vars, @variables (wheel_position_br(t)::Real), [output = true])
   append!(__vars, @variables (wheel_position_bl(t)::Real), [output = true])
+  append!(__vars, @variables (wheel_lateral_position_fr(t)::Real), [output = true])
+  append!(__vars, @variables (wheel_lateral_position_fl(t)::Real), [output = true])
+  append!(__vars, @variables (wheel_lateral_position_br(t)::Real), [output = true])
+  append!(__vars, @variables (wheel_lateral_position_bl(t)::Real), [output = true])
 
   ### Variables (declarations)
 
@@ -148,6 +157,10 @@ height at that wheel.
   push!(__eqs, wheel_position_fl ~ excited_suspension_fl.wheel_position)
   push!(__eqs, wheel_position_br ~ excited_suspension_br.wheel_position)
   push!(__eqs, wheel_position_bl ~ excited_suspension_bl.wheel_position)
+  push!(__eqs, wheel_lateral_position_fr ~ excited_suspension_fr.wheel_lateral_position)
+  push!(__eqs, wheel_lateral_position_fl ~ excited_suspension_fl.wheel_lateral_position)
+  push!(__eqs, wheel_lateral_position_br ~ excited_suspension_br.wheel_lateral_position)
+  push!(__eqs, wheel_lateral_position_bl ~ excited_suspension_bl.wheel_lateral_position)
   push!(__eqs, connect(back_front.frame_a, front_axle.frame_cm))
   push!(__eqs, connect(back_front.frame_b, back_axle.frame_cm))
   push!(__eqs, connect(front_axle.frame_a, excited_suspension_fr.chassis_frame))

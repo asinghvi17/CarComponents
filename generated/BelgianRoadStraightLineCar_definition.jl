@@ -7,14 +7,13 @@
 import Moshi as __Ext__Moshi
 
 @doc Markdown.doc"""
-   BelgianRoadStraightLineCar(; name, wheel_elastic_contact, chassis_bushings, road_profile, wheel_base, ms, rod_radius)
+   BelgianRoadStraightLineCar(; name, wheel_elastic_contact, chassis_bushings, road_surface, wheel_base, ms, rod_radius)
 
 Straight-line Belgian-block-road scenario with zero steering.
 
 This keeps the plant and road at the top level by extending `FullCar`: the road
-height ports are driven by a structural road-profile function of each wheel's
-contact x-position, while the front steering commands are held at zero for a
-straight-line run.
+height at each wheel is driven from a 2D road surface of that wheel's world X-Z
+contact position. The tire contact frame is kept horizontal.
 
 ## Parameters:
 
@@ -22,7 +21,7 @@ straight-line run.
 | ------------ | ----------------------------------- | ------ | --------------- |
 | `wheel_elastic_contact`         | Use compliant tire contact on all four corners.                         | --  |   false |
 | `chassis_bushings`         | Mount each suspension corner to the chassis through a compliant 6-DOF Bushing.                         | --  |   false |
-| `road_profile`         | Callable longitudinal road-height profile [m]                         | --  |   CarComponen...erpolator() |
+| `road_surface`         | Callable road-height surface y = f(x, z) [m]                         | --  |   CarComponen...erpolator() |
 | `wheel_base`         | Wheelbase / track distance [m]                         | --  |   1 |
 | `ms`         | Mass of the car [kg]                         | kg  |   1500 |
 | `rod_radius`         | Radius of the rods                         | --  |   0.02 |
@@ -39,8 +38,12 @@ straight-line run.
  * `wheel_position_fl` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `wheel_position_br` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `wheel_position_bl` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
+ * `wheel_lateral_position_fr` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
+ * `wheel_lateral_position_fl` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
+ * `wheel_lateral_position_br` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
+ * `wheel_lateral_position_bl` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function BelgianRoadStraightLineCar(; name = nothing, wheel_elastic_contact=false, chassis_bushings=false, road_profile=CarComponents.belgian_block_centerline_profile_interpolator(), wheel_base=Float64(1), ms=Float64(1500), rod_radius=0.02, kwargs...)
+@component function BelgianRoadStraightLineCar(; name = nothing, wheel_elastic_contact=false, chassis_bushings=false, road_surface=CarComponents.belgian_block_surface_interpolator(), wheel_base=Float64(1), ms=Float64(1500), rod_radius=0.02, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -59,7 +62,7 @@ straight-line run.
   __bindings = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
 
   ### Structural Parameters (functions)
-  road_profileˍ₋value = CarComponents.belgian_block_centerline_profile_interpolator()
+  road_surfaceˍ₋value = CarComponents.belgian_block_surface_interpolator()
 
   ### Structural Parameters (Final)
 
@@ -97,6 +100,10 @@ straight-line run.
   append!(__vars, @variables (wheel_position_fl(t)::Real), [output = true])
   append!(__vars, @variables (wheel_position_br(t)::Real), [output = true])
   append!(__vars, @variables (wheel_position_bl(t)::Real), [output = true])
+  append!(__vars, @variables (wheel_lateral_position_fr(t)::Real), [output = true])
+  append!(__vars, @variables (wheel_lateral_position_fl(t)::Real), [output = true])
+  append!(__vars, @variables (wheel_lateral_position_br(t)::Real), [output = true])
+  append!(__vars, @variables (wheel_lateral_position_bl(t)::Real), [output = true])
 
   ### Variables (declarations)
 
@@ -152,10 +159,14 @@ straight-line run.
   push!(__eqs, wheel_position_fl ~ excited_suspension_fl.wheel_position)
   push!(__eqs, wheel_position_br ~ excited_suspension_br.wheel_position)
   push!(__eqs, wheel_position_bl ~ excited_suspension_bl.wheel_position)
-  push!(__eqs, road_height_fr ~ road_profile(wheel_position_fr))
-  push!(__eqs, road_height_fl ~ road_profile(wheel_position_fl))
-  push!(__eqs, road_height_br ~ road_profile(wheel_position_br))
-  push!(__eqs, road_height_bl ~ road_profile(wheel_position_bl))
+  push!(__eqs, wheel_lateral_position_fr ~ excited_suspension_fr.wheel_lateral_position)
+  push!(__eqs, wheel_lateral_position_fl ~ excited_suspension_fl.wheel_lateral_position)
+  push!(__eqs, wheel_lateral_position_br ~ excited_suspension_br.wheel_lateral_position)
+  push!(__eqs, wheel_lateral_position_bl ~ excited_suspension_bl.wheel_lateral_position)
+  push!(__eqs, road_height_fr ~ road_surface(wheel_position_fr, wheel_lateral_position_fr))
+  push!(__eqs, road_height_fl ~ road_surface(wheel_position_fl, wheel_lateral_position_fl))
+  push!(__eqs, road_height_br ~ road_surface(wheel_position_br, wheel_lateral_position_br))
+  push!(__eqs, road_height_bl ~ road_surface(wheel_position_bl, wheel_lateral_position_bl))
   push!(__eqs, steer_angle_fr ~ 0.0)
   push!(__eqs, steer_angle_fl ~ 0.0)
   push!(__eqs, connect(back_front.frame_a, front_axle.frame_cm))

@@ -2,8 +2,8 @@
 Local copy of the MultibodyComponents suspension wheel assembly.
 
 The original assembly generated the road height internally as a sine wave. This
-copy exposes the road height as a RealInput and exposes the wheel contact x
-position as a RealOutput.
+copy exposes the road height as an external variable and exposes the wheel contact
+x/z position.
 """
 component ExcitedWheelAssembly
   "Frame rigidly attached to the chassis"
@@ -12,6 +12,8 @@ component ExcitedWheelAssembly
   variable road_height::Length
   "Wheel contact x-position"
   variable wheel_position::Length
+  "Wheel contact z-position"
+  variable wheel_lateral_position::Length
   "Steering angle about the vertical axis"
   variable steer_angle::Angle
   suspension = MultibodyComponents.examples.suspension.QuarterCarSuspension(spring = spring, mirror = mirror, rod_radius = rod_radius, positive_branch = positive_branch) {^suspension}
@@ -45,6 +47,7 @@ relations
   wheel.surface_frame.r_0[2] = road_height
   wheel.surface_frame.R = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
   wheel_position = wheel.surface_frame.r_0[1]
+  wheel_lateral_position = wheel.surface_frame.r_0[3]
   connect(wheel.frame_a, wheel_rotation.frame_b)
   connect(rotational_losses.spline_a, wheel_rotation.axis)
   connect(rotational_losses.spline_b, wheel_rotation.support)

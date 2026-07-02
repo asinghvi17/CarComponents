@@ -1,8 +1,9 @@
 """
-Local copy of the MultibodyComponents full car with external road-height ports.
+Local copy of the MultibodyComponents full car with external road-surface ports.
 
-Each wheel has one RealOutput for contact x-position and one RealInput for road
-height at that wheel.
+Each wheel has RealOutputs for contact x/z position and one RealInput for road
+height at that wheel. The tire contact frame remains horizontal; the tire model
+is assumed to handle local road orientation effects.
 """
 component FullCar
   world = MultibodyComponents.World() {^world}
@@ -26,7 +27,6 @@ component FullCar
   "Front-left steering angle input"
   steer_angle_fl = RealInput() {^steer_angle_fl}
 
-
   "Front-right wheel contact x-position output"
   wheel_position_fr = RealOutput() {^wheel_position_fr}
   "Front-left wheel contact x-position output"
@@ -35,6 +35,14 @@ component FullCar
   wheel_position_br = RealOutput() {^wheel_position_br}
   "Back-left wheel contact x-position output"
   wheel_position_bl = RealOutput() {^wheel_position_bl}
+  "Front-right wheel contact z-position output"
+  wheel_lateral_position_fr = RealOutput() {^wheel_lateral_position_fr}
+  "Front-left wheel contact z-position output"
+  wheel_lateral_position_fl = RealOutput() {^wheel_lateral_position_fl}
+  "Back-right wheel contact z-position output"
+  wheel_lateral_position_br = RealOutput() {^wheel_lateral_position_br}
+  "Back-left wheel contact z-position output"
+  wheel_lateral_position_bl = RealOutput() {^wheel_lateral_position_bl}
   "Wheelbase / track distance [m]"
   parameter wheel_base::Real = 1
   "Mass of the car [kg]"
@@ -63,4 +71,8 @@ relations
   wheel_position_fl = excited_suspension_fl.wheel_position
   wheel_position_br = excited_suspension_br.wheel_position
   wheel_position_bl = excited_suspension_bl.wheel_position
+  wheel_lateral_position_fr = excited_suspension_fr.wheel_lateral_position
+  wheel_lateral_position_fl = excited_suspension_fl.wheel_lateral_position
+  wheel_lateral_position_br = excited_suspension_br.wheel_lateral_position
+  wheel_lateral_position_bl = excited_suspension_bl.wheel_lateral_position
 end

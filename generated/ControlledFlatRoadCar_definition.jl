@@ -45,6 +45,10 @@ pose and commanded steering angle.
  * `wheel_position_fl` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `wheel_position_br` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `wheel_position_bl` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
+ * `wheel_lateral_position_fr` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
+ * `wheel_lateral_position_fl` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
+ * `wheel_lateral_position_br` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
+ * `wheel_lateral_position_bl` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
 @component function ControlledFlatRoadCar(; name = nothing, wheel_elastic_contact=false, chassis_bushings=false, wheel_base=Float64(1), ms=Float64(1500), rod_radius=0.02, path_center_x=Float64(0.0), path_center_z=-6.0, path_radius=Float64(6.0), steer_limit=0.6, path_direction=-1.0, heading_gain=Float64(1.0), radial_gain=0.15, kwargs...)
   isnothing(name) && throw(ArgumentError("""
@@ -123,6 +127,10 @@ pose and commanded steering angle.
   append!(__vars, @variables (wheel_position_fl(t)::Real), [output = true])
   append!(__vars, @variables (wheel_position_br(t)::Real), [output = true])
   append!(__vars, @variables (wheel_position_bl(t)::Real), [output = true])
+  append!(__vars, @variables (wheel_lateral_position_fr(t)::Real), [output = true])
+  append!(__vars, @variables (wheel_lateral_position_fl(t)::Real), [output = true])
+  append!(__vars, @variables (wheel_lateral_position_br(t)::Real), [output = true])
+  append!(__vars, @variables (wheel_lateral_position_bl(t)::Real), [output = true])
 
   ### Variables (declarations)
 
@@ -181,6 +189,10 @@ pose and commanded steering angle.
   push!(__eqs, wheel_position_fl ~ excited_suspension_fl.wheel_position)
   push!(__eqs, wheel_position_br ~ excited_suspension_br.wheel_position)
   push!(__eqs, wheel_position_bl ~ excited_suspension_bl.wheel_position)
+  push!(__eqs, wheel_lateral_position_fr ~ excited_suspension_fr.wheel_lateral_position)
+  push!(__eqs, wheel_lateral_position_fl ~ excited_suspension_fl.wheel_lateral_position)
+  push!(__eqs, wheel_lateral_position_br ~ excited_suspension_br.wheel_lateral_position)
+  push!(__eqs, wheel_lateral_position_bl ~ excited_suspension_bl.wheel_lateral_position)
   push!(__eqs, road_height_fr ~ 0.0)
   push!(__eqs, road_height_fl ~ 0.0)
   push!(__eqs, road_height_br ~ 0.0)

@@ -1,4 +1,5 @@
 type RoadProfile1D = func(::Real)::Real
+type RoadSurface2D = func(::Real, ::Real)::Real
 
 """
 Continuous steering controller for holding a straight path in the world X-Z plane.
@@ -34,19 +35,18 @@ end
 Straight-line Belgian-block-road scenario with zero steering.
 
 This keeps the plant and road at the top level by extending `FullCar`: the road
-height ports are driven by a structural road-profile function of each wheel's
-contact x-position, while the front steering commands are held at zero for a
-straight-line run.
+height at each wheel is driven from a 2D road surface of that wheel's world X-Z
+contact position. The tire contact frame is kept horizontal.
 """
 component BelgianRoadStraightLineCar
   extends FullCar
-  "Callable longitudinal road-height profile [m]"
-  structural parameter road_profile::RoadProfile1D = CarComponents.belgian_block_centerline_profile_interpolator()
+  "Callable road-height surface y = f(x, z) [m]"
+  structural parameter road_surface::RoadSurface2D = CarComponents.belgian_block_surface_interpolator()
 relations
-  road_height_fr = road_profile(wheel_position_fr)
-  road_height_fl = road_profile(wheel_position_fl)
-  road_height_br = road_profile(wheel_position_br)
-  road_height_bl = road_profile(wheel_position_bl)
+  road_height_fr = road_surface(wheel_position_fr, wheel_lateral_position_fr)
+  road_height_fl = road_surface(wheel_position_fl, wheel_lateral_position_fl)
+  road_height_br = road_surface(wheel_position_br, wheel_lateral_position_br)
+  road_height_bl = road_surface(wheel_position_bl, wheel_lateral_position_bl)
   steer_angle_fr = 0.0
   steer_angle_fl = 0.0
 end
@@ -55,15 +55,15 @@ end
 Belgian-block-road car with a separate straight-line steering controller.
 
 This extends `FullCar` rather than nesting it so the multibody `World` remains at
-the top level. The inherited `FullCar` equations plus road-profile equations are
-the car+road plant, while `controller` is a separate causal subsystem coupled
+the top level. The inherited `FullCar` equations plus 2D road-surface equations
+are the car+road plant, while `controller` is a separate causal subsystem coupled
 only through measured chassis pose and commanded steering angle.
 """
 component ControlledBelgianRoadStraightLineCar
   extends FullCar
   controller = StraightLineSteeringController(z_ref = path_z_ref, steer_limit = steer_limit, heading_gain = heading_gain, lateral_gain = lateral_gain) {^controller}
-  "Callable longitudinal road-height profile [m]"
-  structural parameter road_profile::RoadProfile1D = CarComponents.belgian_block_centerline_profile_interpolator()
+  "Callable road-height surface y = f(x, z) [m]"
+  structural parameter road_surface::RoadSurface2D = CarComponents.belgian_block_surface_interpolator()
   "Target z-coordinate for the straight path"
   parameter path_z_ref::Real = 0.0
   "Smooth steering saturation limit [rad]"
@@ -73,10 +73,10 @@ component ControlledBelgianRoadStraightLineCar
   "Lateral-position feedback gain"
   parameter lateral_gain::Real = 0.25
 relations
-  road_height_fr = road_profile(wheel_position_fr)
-  road_height_fl = road_profile(wheel_position_fl)
-  road_height_br = road_profile(wheel_position_br)
-  road_height_bl = road_profile(wheel_position_bl)
+  road_height_fr = road_surface(wheel_position_fr, wheel_lateral_position_fr)
+  road_height_fl = road_surface(wheel_position_fl, wheel_lateral_position_fl)
+  road_height_br = road_surface(wheel_position_br, wheel_lateral_position_br)
+  road_height_bl = road_surface(wheel_position_bl, wheel_lateral_position_bl)
   controller.z = back_front.body.r_0[3]
   controller.heading = -back_front.body.phi[2]
   steer_angle_fr = controller.steer_angle

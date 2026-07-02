@@ -39,7 +39,7 @@ function compile_controlled_belgian_model(road_surface)
     return model, sys
 end
 
-function initial_conditions(sys, road_surface; speed = 0.8, baseline = nothing)
+function initial_conditions(sys, road_surface; speed = 0.8, baseline = nothing, start_x = 1.0)
     corners = [
         sys.excited_suspension_fr,
         sys.excited_suspension_fl,
@@ -58,10 +58,10 @@ function initial_conditions(sys, road_surface; speed = 0.8, baseline = nothing)
         push!(defs, corner.wheel_rotation.w => -dir * speed / 0.2)
     end
 
-    body_y0 = baseline === nothing ? 0.193 + road_surface(0.0, 0.0) : baseline.body_y
+    body_y0 = baseline === nothing ? 0.193 + road_surface(start_x, 0.0) : baseline.body_y
 
     append!(defs, [
-        sys.back_front.body.r_0[1] => 0.0,
+        sys.back_front.body.r_0[1] => start_x,
         sys.back_front.body.r_0[2] => body_y0,
         sys.back_front.body.r_0[3] => 0.0,
         sys.back_front.body.v_0[1] => speed,
@@ -88,10 +88,10 @@ function initial_conditions(sys, road_surface; speed = 0.8, baseline = nothing)
     return defs
 end
 
-function simulate_belgian_road(sys, road_surface; speed = 0.8, tstop = 12.0, save_dt = 1 / 60, baseline = nothing)
+function simulate_belgian_road(sys, road_surface; speed = 0.8, tstop = 12.0, save_dt = 1 / 60, baseline = nothing, start_x = 1.0)
     prob = ODEProblem(
         sys,
-        initial_conditions(sys, road_surface; speed, baseline),
+        initial_conditions(sys, road_surface; speed = speed, baseline = baseline, start_x = start_x),
         (0.0, tstop);
         optimize = :basic,
         saveat = save_dt,
@@ -113,8 +113,8 @@ function simulate_belgian_road(sys, road_surface; speed = 0.8, tstop = 12.0, sav
     return sol
 end
 
-function static_baseline(sys, road_surface; settle_time = 4.0)
-    sol = simulate_belgian_road(sys, road_surface; speed = 0.0, tstop = settle_time, save_dt = 1 / 60)
+function static_baseline(sys, road_surface; settle_time = 4.0, start_x = 1.0)
+    sol = simulate_belgian_road(sys, road_surface; speed = 0.0, tstop = settle_time, save_dt = 1 / 60, start_x = start_x)
     t = sol.t[end]
 
     fr_x = sol(t; idxs = sys.wheel_position_fr)

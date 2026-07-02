@@ -457,8 +457,23 @@ end
 """
     crgDataSetModifiersApply(dataSetId) -> Nothing
 
-Apply all currently-set modifiers to the data set once, then clear them
-from the modifier list.
+Apply all currently-set modifiers to the data set. Modifiers are **not**
+cleared afterward (verified empirically during Task 15's review: calling
+this twice in a row on the same data set with no intervening
+`crgDataSetModifierRemoveAll` applies the same offset twice) -- call
+`crgDataSetModifierRemoveAll` first if you need a clean slate before the
+next `...Apply` call, e.g. when reusing a `dataSetId` across multiple
+modifier scenarios.
+
+Also note: a freshly-created data set (`crgLoaderReadFile`) already has
+`dCrgModRefPointX/Y/Z/Phi` and `dCrgModGridNaNMode` seeded with default
+values (`crgOptionSetDefaultModifiers`, called automatically on data-set
+creation). Critically, `crgDataApplyTransformations` checks whether ANY
+`dCrgModRefPoint*` entry is present at all (regardless of its value) BEFORE
+checking `dCrgModRefLineOffset*` -- so these seeded defaults silently
+short-circuit `dCrgModRefLineOffsetX/Y/Z/Phi` modifiers entirely unless
+cleared first. Call `crgDataSetModifierRemoveAll(dataSetId)` immediately
+after loading, before setting any `RefLineOffset*` modifiers.
 """
 function crgDataSetModifiersApply(dataSetId::Integer)
     ccall((:crgDataSetModifiersApply, LIBOPENCRG_PATH), Cvoid, (Cint,), dataSetId)

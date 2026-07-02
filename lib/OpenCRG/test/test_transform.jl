@@ -62,6 +62,16 @@ end
         @test OpenCRG.integrate_reference_z(r, nothing, 4) == zeros(4)
     end
 
+    @testset "no slope channel, NONZERO start_z: early-out to constant start_z, not zero" begin
+        # Caught by code review, cross-checked against the real compiled C
+        # reference library (crgEvalz.c's fallback: crgData->channelRefZ.info.first,
+        # i.e. REFERENCE_LINE_START_Z, not zero, when the ref-z channel is invalid).
+        # A flat road at a nonzero elevation must report that elevation everywhere,
+        # not silently flatten to 0.0.
+        r = OpenCRG.parse_road_crg(["REFERENCE_LINE_INCREMENT=1.0", "REFERENCE_LINE_START_Z=5.0"])
+        @test OpenCRG.integrate_reference_z(r, nothing, 4) == fill(5.0, 4)
+    end
+
     @testset "constant slope (no channel, nonzero REFERENCE_LINE_START_S)" begin
         r = OpenCRG.parse_road_crg(["REFERENCE_LINE_INCREMENT=1.0", "REFERENCE_LINE_START_S=0.1"])
         z_ref = OpenCRG.integrate_reference_z(r, nothing, 4)

@@ -62,13 +62,22 @@ end
 channel at all, `refline.start_slope` (default 0.0, from
 `REFERENCE_LINE_START_S`) is used as a constant slope for every step. If
 there's no slope channel AND `start_slope == 0.0`, the reference
-implementation (`calcRefLineZ`) skips this early — we represent that as a
-constant-zero vector, since `z`-grid values are always added on top
-downstream regardless (see `assemble_z_grid`).
+implementation (`calcRefLineZ`) skips integration early — but this does NOT
+mean elevation is zero everywhere. Cross-checked against the real compiled
+C reference library (`crgEvaluv2z`/`crgEvalz.c`): when the ref-z channel is
+invalid, it falls back to adding `channelRefZ.info.first` (i.e.
+`REFERENCE_LINE_START_Z`) at every point, not zero. So a flat road at a
+nonzero elevation (`start_z` set, no slope) must produce a constant
+`start_z` vector, not a constant-zero one — `end_z` is irrelevant in this
+branch (confirmed against the oracle: it's ignored even when set), since
+there's no slope data to integrate toward it anyway.
+
+`nu == 1` degenerates safely (only `z_ref[1] = refline.start_z` is ever
+produced; `end_z` is unused), matching `integrate_reference_line`.
 """
 function integrate_reference_z(refline::ReferenceLineParams, slope::Union{Vector{Float64},Nothing}, nu::Int)
     if slope === nothing && refline.start_slope == 0.0
-        return zeros(nu)
+        return fill(refline.start_z, nu)
     end
     du = refline.increment
     slope_at(i) = slope === nothing ? refline.start_slope : slope[i]

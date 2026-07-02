@@ -71,6 +71,28 @@ end
         @test m[2, :] == [4.0, 5.0, 6.0]
     end
 
+    @testset "synthetic 2-row x 3-channel KDBI blob (Float64, no upstream fixture covers this)" begin
+        vals = Float64[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+        bytes = UInt8[]
+        for v in vals
+            append!(bytes, reverse(reinterpret(UInt8, [v])))
+        end
+        m = OpenCRG.decode_binary_payload(bytes, :KDBI, 3)
+        @test size(m) == (2, 3)
+        @test m[1, :] == [1.0, 2.0, 3.0]
+        @test m[2, :] == [4.0, 5.0, 6.0]
+    end
+
+    @testset "truncated row is an error, not a silent drop" begin
+        row = Float32.(1:25)
+        bytes = UInt8[]
+        for v in row
+            append!(bytes, reverse(reinterpret(UInt8, [v])))
+        end
+        partial_second_row = bytes[1:90]   # 90 leftover bytes: not plausible padding (>= 80)
+        @test_throws Exception OpenCRG.decode_binary_payload(vcat(bytes, partial_second_row), :KRBI, 25)
+    end
+
     @testset "real binary file: shape and no per-row 80-byte alignment" begin
         bytes = read(joinpath(DATA, "belgian_block.crg"))
         header_end = OpenCRG.find_header_end(bytes)

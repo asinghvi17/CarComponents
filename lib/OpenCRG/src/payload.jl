@@ -95,6 +95,11 @@ do not start on fresh 80-byte records the way ASCII rows do.
 
 Any IEEE-754 NaN bit pattern (not one specific sentinel) decodes as NaN,
 matching the reference decoder's plain `isnan()` check.
+
+The leftover remainder after floor division must be less than 80 bytes (the
+spec's end-of-payload padding quantum) — anything bigger means a truncated
+or corrupted file is silently dropping most of a real row, the same
+truncation risk `decode_ascii_payload` (Task 7) guards against.
 """
 function decode_binary_payload(payload::AbstractVector{UInt8}, format_code::Symbol, nchannels::Int)
     T = BINARY_ELEM_TYPE[format_code]
@@ -102,6 +107,8 @@ function decode_binary_payload(payload::AbstractVector{UInt8}, format_code::Symb
     row_bytes = nchannels * esize
     nu = length(payload) ÷ row_bytes
     needed = nu * row_bytes
+    length(payload) - needed < 80 ||
+        error("binary payload has $(length(payload) - needed) leftover bytes after $nu whole rows of $row_bytes bytes each — expected less than 80 bytes of end-of-payload padding, this looks like a truncated row")
     raw = reinterpret(T, Vector{UInt8}(payload[1:needed]))
     raw_be = ntoh.(raw)
     # File layout is row-major (channel fastest within a row); Julia's reshape

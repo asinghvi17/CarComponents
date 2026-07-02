@@ -1,5 +1,6 @@
 using OpenCRG
 
+
 function belgian_block_crg_path()
     return joinpath(dirname(@__DIR__), "lib", "OpenCRG", "test", "data", "belgian_block.crg")
 end
@@ -130,3 +131,143 @@ end
 belgian_block_surface_data(; kwargs...) = opencrg_surface_data(belgian_block_crg_path(); kwargs...)
 belgian_block_surface_interpolator(; kwargs...) = opencrg_surface_interpolator(belgian_block_crg_path(); kwargs...)
 belgian_block_surface_value(x, z) = belgian_block_surface_interpolator()(x, z)
+
+
+function country_road_crg_path()
+    return joinpath(dirname(@__DIR__), "scripts", "data", "real_roads", "country_road.crg")
+end
+
+country_road_surface_grid() = opencrg_road_surface_grid(country_road_crg_path())
+
+function _opencrg_row_stride(u, longitudinal_spacing)
+    longitudinal_spacing === nothing && return 1
+    du = (last(u) - first(u)) / max(length(u) - 1, 1)
+    return max(1, round(Int, longitudinal_spacing / du))
+end
+
+function _opencrg_lateral_stride(lateral_stride)
+    lateral_stride === nothing && return 1
+    return max(1, Int(lateral_stride))
+end
+
+function _include_last_index(idx, last_index::Integer)
+    values = collect(idx)
+    if values[end] != last_index
+        push!(values, last_index)
+    end
+    return values
+end
+
+function _transformed_opencrg_xy(X, Y, reference_col)
+    x0 = X[1, reference_col]
+    y0 = Y[1, reference_col]
+    heading0 = atan(Y[2, reference_col] - Y[1, reference_col], X[2, reference_col] - X[1, reference_col])
+    c = cos(heading0)
+    s = sin(heading0)
+
+    Xlocal = similar(X, Float64)
+    Zlocal = similar(Y, Float64)
+    for I in eachindex(X)
+        dx = X[I] - x0
+        dy = Y[I] - y0
+        Xlocal[I] = c * dx + s * dy
+        Zlocal[I] = -s * dx + c * dy
+    end
+
+    return Xlocal, Zlocal, heading0
+end
+
+function _centerline_heading_from_xz(x, z)
+    heading = similar(x, Float64)
+    for i in eachindex(x)
+        im = max(firstindex(x), i - 1)
+        ip = min(lastindex(x), i + 1)
+        heading[i] = atan(z[ip] - z[im], x[ip] - x[im])
+    end
+    return heading
+end
+
+"""
+    opencrg_curved_road_data(source; longitudinal_spacing = 0.25, lateral_stride = 4, reference_lateral = 0.0)
+
+Return a downsampled, transformed OpenCRG road data set for simulation and
+animation. The returned X/Z coordinates are world path-plane coordinates with the
+reference line start translated to `(0, 0)` and rotated so the initial heading is
+along +X. Height is shifted relative to the first reference-line sample.
+"""
+function opencrg_curved_road_data(
+        source;
+        longitudinal_spacing = 0.25,
+        lateral_stride = 4,
+        lateral_min = nothing,
+        lateral_max = nothing,
+        reference_lateral::Real = 0.0,
+    )
+    u, v, X, Y, Z = opencrg_road_surface_grid(source)
+    finite_cols = _finite_lateral_columns(Z)
+    selected_cols = _select_lateral_columns(v, finite_cols; lateral_min, lateral_max)
+    reference_col = argmin(abs.(v .- reference_lateral))
+    @assert reference_col in selected_cols "The reference lateral column must be finite and inside the selected lateral band."
+
+    row_stride = _opencrg_row_stride(u, longitudinal_spacing)
+    col_stride = _opencrg_lateral_stride(lateral_stride)
+    rows = _include_last_index(1:row_stride:length(u), length(u))
+    cols = _include_last_index(first(selected_cols):col_stride:last(selected_cols), last(selected_cols))
+    if !(reference_col in cols)
+        push!(cols, reference_col)
+        sort!(cols)
+    end
+
+    Xlocal_full, Zlocal_full, initial_heading = _transformed_opencrg_xy(X, Y, reference_col)
+    x_axis = collect(Float64, Xlocal_full[rows, reference_col])
+    center_z = collect(Float64, Zlocal_full[rows, reference_col])
+    center_heading = _centerline_heading_from_xz(x_axis, center_z)
+    v_axis = collect(Float64, v[cols])
+    reference_height = Z[1, reference_col]
+    heights = collect(Float64, Z[rows, cols] .- reference_height)
+    @assert all(isfinite, heights) "Selected OpenCRG road data contains non-finite height values."
+    @assert all(>(0), diff(x_axis)) "Transformed reference-line X coordinate must be strictly increasing."
+
+    return (
+        x_axis = x_axis,
+        v_axis = v_axis,
+        heights = heights,
+        center_z = center_z,
+        center_heading = center_heading,
+        X = collect(Float64, Xlocal_full[rows, cols]),
+        Z = collect(Float64, Zlocal_full[rows, cols]),
+        Y = heights,
+        u = collect(Float64, u[rows] .- first(u)),
+        initial_heading = initial_heading,
+        reference_height = reference_height,
+    )
+end
+
+country_road_curved_data(; kwargs...) = opencrg_curved_road_data(country_road_crg_path(); kwargs...)
+
+function opencrg_curved_center_z_interpolator(data)
+    return nd_bspline_interpolation((data.x_axis,), data.center_z; degree = 1, max_derivative_order_eval = 1)
+end
+
+function opencrg_curved_heading_interpolator(data)
+    return nd_bspline_interpolation((data.x_axis,), data.center_heading; degree = 1, max_derivative_order_eval = 1)
+end
+
+function opencrg_curved_height_interpolator(data)
+    return nd_bspline_interpolation((data.x_axis, data.v_axis), data.heights; degree = (1, 1), max_derivative_order_eval = 1)
+end
+
+function opencrg_curved_surface_interpolator(data)
+    center_z = opencrg_curved_center_z_interpolator(data)
+    center_heading = opencrg_curved_heading_interpolator(data)
+    height = opencrg_curved_height_interpolator(data)
+    return (x, z) -> begin
+        heading = center_heading(x)
+        lateral = cos(heading) * (z - center_z(x))
+        height(x, lateral)
+    end
+end
+
+country_road_center_z_interpolator(; kwargs...) = opencrg_curved_center_z_interpolator(country_road_curved_data(; kwargs...))
+country_road_heading_interpolator(; kwargs...) = opencrg_curved_heading_interpolator(country_road_curved_data(; kwargs...))
+country_road_surface_interpolator(; kwargs...) = opencrg_curved_surface_interpolator(country_road_curved_data(; kwargs...))

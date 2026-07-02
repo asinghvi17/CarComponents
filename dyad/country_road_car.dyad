@@ -1,0 +1,74 @@
+"""
+Continuous steering controller for following the transformed OpenCRG country-road
+reference line in the world X-Z path plane.
+
+The controller is causal and separate from the car+road plant: it reads chassis
+position/heading, evaluates reference-line helpers, and outputs a front steering
+command. World Y is vertical and is not used by this path controller.
+"""
+component CountryRoadPathSteeringController
+  "Vehicle x-position in the world X-Z path plane"
+  x = RealInput() {^x}
+  "Vehicle z-position in the world X-Z path plane"
+  z = RealInput() {^z}
+  "Vehicle heading angle in the X-Z plane, where 0 points along +X and positive points toward +Z"
+  heading = RealInput() {^heading}
+  "Front steering command [rad]"
+  steer_angle = RealOutput() {^steer_angle}
+  "Reference-line z(x) profile"
+  structural parameter center_z_profile::RoadProfile1D = CarComponents.country_road_center_z_interpolator()
+  "Reference-line heading(x) profile"
+  structural parameter center_heading_profile::RoadProfile1D = CarComponents.country_road_heading_interpolator()
+  "Smooth steering saturation limit [rad]"
+  parameter steer_limit::Angle = 0.35
+  "Heading-error feedback gain"
+  parameter heading_gain::Real = 1.2
+  "Lateral-position feedback gain"
+  parameter lateral_gain::Real = 0.3
+  variable desired_z::Length
+  variable desired_heading::Angle
+  variable lateral_error::Length
+  variable heading_error::Angle
+  variable raw_steer::Angle
+relations
+  desired_z = center_z_profile(x)
+  desired_heading = center_heading_profile(x)
+  lateral_error = cos(desired_heading) * (z - desired_z)
+  heading_error = atan(sin(desired_heading - heading), cos(desired_heading - heading))
+  raw_steer = -heading_gain * heading_error + lateral_gain * lateral_error
+  steer_angle = steer_limit * tanh(raw_steer / steer_limit)
+end
+
+"""
+Country-road car with a separate reference-line steering controller.
+
+This extends `FullCar` so the multibody `World` remains at the top level. The
+plant samples the transformed country-road height under each wheel, while the
+controller tracks the transformed country-road reference line in world X-Z.
+"""
+component ControlledCountryRoadCar
+  extends FullCar
+  controller = CountryRoadPathSteeringController(center_z_profile = center_z_profile, center_heading_profile = center_heading_profile, steer_limit = steer_limit, heading_gain = heading_gain, lateral_gain = lateral_gain) {^controller}
+  "Callable transformed country-road height surface y = f(x, z) [m]"
+  structural parameter road_surface::RoadSurface2D = CarComponents.country_road_surface_interpolator()
+  "Reference-line z(x) profile"
+  structural parameter center_z_profile::RoadProfile1D = CarComponents.country_road_center_z_interpolator()
+  "Reference-line heading(x) profile"
+  structural parameter center_heading_profile::RoadProfile1D = CarComponents.country_road_heading_interpolator()
+  "Smooth steering saturation limit [rad]"
+  parameter steer_limit::Angle = 0.35
+  "Heading-error feedback gain"
+  parameter heading_gain::Real = 1.2
+  "Lateral-position feedback gain"
+  parameter lateral_gain::Real = 0.3
+relations
+  road_height_fr = road_surface(wheel_position_fr, wheel_lateral_position_fr)
+  road_height_fl = road_surface(wheel_position_fl, wheel_lateral_position_fl)
+  road_height_br = road_surface(wheel_position_br, wheel_lateral_position_br)
+  road_height_bl = road_surface(wheel_position_bl, wheel_lateral_position_bl)
+  controller.x = back_front.body.r_0[1]
+  controller.z = back_front.body.r_0[3]
+  controller.heading = -back_front.body.phi[2]
+  steer_angle_fr = controller.steer_angle
+  steer_angle_fl = controller.steer_angle
+end

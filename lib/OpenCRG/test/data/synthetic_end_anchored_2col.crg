@@ -1,0 +1,36 @@
+$CT
+synthetic fixture: end-anchored (x,y,z) integration with >=2 long-section
+columns, for Task 17 cross-validation coverage of integrate_reference_line's
+and integrate_reference_z's backward+blend branches (the original Task 11
+fixture, synthetic_end_anchored.crg, only has 1 long-section column, which
+the real C library's crgLoader.c rejects: "no or insufficient long section
+data available").
+$
+$ROAD_CRG
+REFERENCE_LINE_START_U   = 0.0
+REFERENCE_LINE_END_U     = 4.0
+REFERENCE_LINE_INCREMENT = 1.0
+REFERENCE_LINE_START_X   = 0.0
+REFERENCE_LINE_START_Y   = 0.0
+REFERENCE_LINE_START_PHI = 0.0
+REFERENCE_LINE_END_X     = 4.3
+REFERENCE_LINE_END_Y     = 0.35
+REFERENCE_LINE_START_Z   = 0.0
+REFERENCE_LINE_END_Z     = 0.5
+LONG_SECTION_V_RIGHT     = -1.0
+LONG_SECTION_V_LEFT      = 1.0
+$
+$KD_DEFINITION
+#:LRFI
+D:reference line phi,rad
+D:reference line slope,m/m
+D:long section at v = -1.000,m
+D:long section at v =  0.000,m
+D:long section at v =  1.000,m
+$
+$$$$$$$$10$$$$$$$$20$$$$$$$$30$$$$$$$$40$$$$$$$$50$$$$$$$$60$$$$$$$$70$$$$$$$$80
+**unused****unused** 0.0000000 0.0100000 0.0200000
+ 0.0500000 0.0500000 0.0300000-0.0100000 0.0000000
+ 0.1500000-0.0500000 0.0500000 0.0200000-0.0200000
+ 0.1000000 0.1000000 0.0200000 0.0400000 0.0100000
+-0.0500000 0.0000000 0.0000000 0.0300000 0.0500000

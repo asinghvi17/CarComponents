@@ -74,6 +74,41 @@ there's no slope data to integrate toward it anyway.
 
 `nu == 1` degenerates safely (only `z_ref[1] = refline.start_z` is ever
 produced; `end_z` is unused), matching `integrate_reference_line`.
+
+**End-anchored blend fraction is deliberately NOT `i/(nu-1)` by analogy with
+`integrate_reference_line`'s (x,y) blend — found and fixed during Task 17's
+cross-validation.** `integrate_reference_line`'s blend (`calcRefLine` in
+`crgLoader.c`, ~line 2181-2190) and this function's blend
+(`calcRefLineZ`, ~line 2260-2268) look structurally parallel but are NOT
+numerically identical in the reference C implementation: `calcRefLine` uses
+`fraction = (i+1)/(size-1)` and loops `i` from `0` to `size-2` inclusive
+(so every index from 1 to `size-1`, i.e. including the anchor, gets
+"re-blended" — a no-op there since `fraction=1` at the last step reproduces
+the anchor exactly); `calcRefLineZ` instead uses `fraction = i/(size-1)`
+(the loop variable itself, NOT `i+1`) and loops only up to `size-3`
+inclusive (`i < size-2`), one iteration short of `calcRefLine`'s bound — so
+the very last index (`size-1`) is never revisited by the blend formula at
+all; it keeps the value written directly at the top of the function
+(the true `end_z` anchor). Net effect: at a given target node, `calcRefLineZ`
+uses a fraction ONE NODE "behind" what the symmetric-by-analogy formula
+would give. This was invisible to every pre-Task-17 test (both
+`integrate_reference_z`'s own unit tests and every cross-validation fixture)
+because the only fixture that exercises this branch at all
+(`synthetic_end_anchored.crg`, Task 11) declares just one long-section
+column, which the real C library refuses to load at all (`crgLoader.c`:
+"no or insufficient long section data available", requires >= 2) — so this
+branch was cross-validated against pure hand arithmetic only, never against
+the compiled oracle, until Task 17 added `synthetic_end_anchored_2col.crg`.
+Cross-validating that new fixture's z values against `crgEvaluv2z` surfaced
+a ~0.1-0.15m systematic mismatch at every interior node, which traced
+directly to this fraction/loop-bound discrepancy (verified by hand against
+the disassembled formula above, and confirmed bit-for-bit against the C
+oracle's actual `channelRefZ.data[]` values once ported). Whether this
+asymmetry in the C reference is an intentional design choice or an
+unnoticed bug upstream is unknown and irrelevant here — cross-validating
+against the compiled oracle, not against what "should" be symmetric, is
+this whole package's stated design philosophy, so this function replicates
+`calcRefLineZ` exactly rather than `calcRefLine`'s pattern.
 """
 function integrate_reference_z(refline::ReferenceLineParams, slope::Union{Vector{Float64},Nothing}, nu::Int)
     if slope === nothing && refline.start_slope == 0.0
@@ -94,8 +129,15 @@ function integrate_reference_z(refline::ReferenceLineParams, slope::Union{Vector
     for i in nu:-1:2
         zb[i-1] = zb[i] - slope_at(i) * du
     end
-    for i in 1:nu-1
-        fraction = i / (nu - 1)
+    if nu >= 2
+        # the true end anchor -- set directly, matching `calcRefLineZ`'s
+        # `data[size-1] = info.last` at the top of the function; the blend
+        # loop below deliberately never touches this index again (its bound
+        # is `1:nu-2`, one short of `integrate_reference_line`'s `1:nu-1`).
+        z_ref[nu] = zb[nu]
+    end
+    for i in 1:nu-2
+        fraction = (i - 1) / (nu - 1)
         z_ref[i+1] = (1 - fraction) * (z_ref[i] + slope_at(i+1) * du) + fraction * zb[i+1]
     end
     return z_ref
@@ -127,31 +169,50 @@ flip (i.e. `X`/`Y` match with `v` negated), that's this convention being
 mirrored relative to the C library — fix by negating `perp`'s output here,
 not by negating `v` itself, since `v`'s sign also matters for the banking
 term in `assemble_z_grid` (Task 14) and must stay consistent with the
-parsed `v` axis.
+parsed `v` axis. **Confirmed during Task 17: no such flip was needed** --
+cross-validating both baseline fixtures against the compiled C oracle
+passed with 0 mismatches on the very first run, using this convention
+exactly as written.
 
-Known unguarded degeneracy (found during Task 13's review, NOT fixed here —
-deferred to Task 17): an exact U-turn / coincident-endpoints kink (node
-`i-1` and node `i+1` at the same point, so the "chord skipping over node i"
-has zero length) sends `normalize2` to `0/0` and the miter rescale's
-`denom` toward zero, producing `NaN`/`Inf` in `offset_dir[i]` with no
-warning. This is NOT a purely theoretical corner case: `integrate_reference_line`'s
-non-end-anchored branch gives every segment exactly the same length `du` by
-construction, so an exact-180°-hairpin reference line — plausible for a
-pathological/adversarial input, if not a typical recorded track — hits this
-degenerate equal-length configuration by default, not by contrived
-construction. The reference implementation this task transcribes already
-guards against exactly this: `crgEvaluv2xy.c`'s `normalizeVector2` (~line
-197) returns its input unchanged rather than dividing when
-`length < 1.0e-10`, and its rescale step (~line 149) checks
-`fabs(dotProd) > 1.0e-10` before dividing, falling back to the un-rescaled
-normal otherwise. Task 17 should port those exact thresholds/fallbacks
-(cross-validatable directly against the compiled C oracle via FFI) rather
-than deriving new ones from scratch.
+Epsilon-guarded degeneracy handling at an exact U-turn / coincident-endpoints
+kink (found during Task 13's review; guards ported during Task 17's
+cross-validation): if node `i-1` and node `i+1` coincide (or nearly so), the
+"chord skipping over node `i`" has ~zero length, which would otherwise send
+`normalize2` to `0/0` and the miter rescale's `denom` toward zero, producing
+`NaN`/`Inf` in `offset_dir[i]` with no warning. This is NOT a purely
+theoretical corner case: `integrate_reference_line`'s non-end-anchored
+branch gives every segment exactly the same length `du` by construction, so
+an exact-180°-hairpin reference line — plausible for a pathological/
+adversarial input, if not a typical recorded track — hits this degenerate
+equal-length configuration by default, not by contrived construction. The
+reference implementation this function transcribes guards against exactly
+this: `crgEvaluv2xy.c`'s `normalizeVector2` (~line 197) returns its input
+UNCHANGED (not normalized) rather than dividing when `length < 1.0e-10`,
+and its rescale step (~line 149) checks `fabs(dotProd) > 1.0e-10` before
+dividing, falling back to the un-rescaled (and, per the previous guard,
+possibly still un-normalized) bisector otherwise. Both thresholds are
+ported verbatim below (`normalize2`/the `abs(denom) > 1.0e-10` check).
+Net effect at an exact hairpin: `offset_dir[i]` ends up as a
+vector with a magnitude on the order of 1e-16 (not exactly `(0.0, 0.0)`
+unless the chord is bit-exactly zero-length) — so the offset point stays
+essentially ON the reference line regardless of `v`, rather than blowing up.
+Confirmed bit-for-bit against the compiled C oracle on a synthetic
+hairpin fixture (`synthetic_hairpin.crg`, Task 17): at the hairpin node,
+`crgEvaluv2xy` returns `x/y` equal to the reference line's own point there
+(to ~1e-16), for every `v` queried — exactly what this guarded formula
+produces. (Task 13's original pinning test asserted `isnan(X[2,1])` for
+this exact scenario using EXACT `Float64` zeros for `x`/`y`, where the
+chord length actually is bit-exact `0.0`, not just ~1e-16 — the guard
+handles that case too, since `hypot(0.0,0.0) = 0.0 < 1.0e-10`. That test's
+expectation was updated to the new, correct, finite fallback value.)
 """
 function lateral_offset_grid(x::Vector{Float64}, y::Vector{Float64}, v::Vector{Float64})
     nu = length(x)
     perp(d) = (-d[2], d[1])
-    normalize2(d) = (n = hypot(d[1], d[2]); (d[1]/n, d[2]/n))
+    # Guarded normalize: matches `normalizeVector2` (crgEvaluv2xy.c ~line 197)
+    # exactly -- leave the vector UNCHANGED (not divided) when its length is
+    # below 1.0e-10, instead of dividing by (near-)zero and producing NaN/Inf.
+    normalize2(d) = (n = hypot(d[1], d[2]); n < 1.0e-10 ? d : (d[1]/n, d[2]/n))
 
     seg = [normalize2((x[i+1]-x[i], y[i+1]-y[i])) for i in 1:nu-1]
     n12 = perp.(seg)
@@ -166,7 +227,13 @@ function lateral_offset_grid(x::Vector{Float64}, y::Vector{Float64}, v::Vector{F
             chord = normalize2((x[i+1]-x[i-1], y[i+1]-y[i-1]))
             n1 = perp(chord)
             denom = n1[1]*n12[i][1] + n1[2]*n12[i][2]
-            offset_dir[i] = (n1[1]/denom, n1[2]/denom)
+            # Guarded rescale: matches the C reference's `fabs(dotProd) > 1.0e-10`
+            # check exactly -- only rescale when the dot product is big enough;
+            # otherwise fall back to the (possibly still un-normalized, per the
+            # guard above) bisector `n1` as-is. This is what produces the
+            # graceful "stay on the reference line" fallback at a hairpin,
+            # instead of blowing up to NaN/Inf.
+            offset_dir[i] = abs(denom) > 1.0e-10 ? (n1[1]/denom, n1[2]/denom) : n1
         end
     end
 
@@ -359,4 +426,23 @@ function apply_mods(data::CRGData)
         r2.v_right, r2.v_left, r2.v_increment, r2.start_slope, r2.end_slope, r2.start_banking, r2.end_banking)
 
     return CRGData(data.comment, r3, data.format_code, data.opts, mods, data.mpro, phi, banking, slope, v, z)
+end
+
+"""
+    road_surface_grid(data::CRGData) -> (u, v, X, Y, Z)
+
+The batched forward transform: applies `\$ROAD_CRG_MODS` (a no-op if none
+are set), integrates the reference line and its elevation profile, and
+offsets the whole grid laterally — producing world-frame `(u, v, X, Y, Z)`,
+all `(nu, nv)` except the `u`/`v` axis vectors themselves.
+"""
+function road_surface_grid(data::CRGData)
+    d = apply_mods(data)
+    nu = length(d.phi)
+    u = [d.refline.start_u + (i-1)*d.refline.increment for i in 1:nu]
+    x, y = integrate_reference_line(d.refline, d.phi)
+    z_ref = integrate_reference_z(d.refline, d.slope, nu)
+    X, Y = lateral_offset_grid(x, y, d.v)
+    Z = assemble_z_grid(d.z, z_ref, d.banking, d.refline, d.v)
+    return u, d.v, X, Y, Z
 end

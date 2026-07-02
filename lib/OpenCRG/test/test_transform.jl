@@ -103,17 +103,34 @@ end
         z_ref = OpenCRG.integrate_reference_z(r, slope, 5)
         @test z_ref[1] ≈ 0.0
         @test z_ref[end] ≈ 0.9   # true end elevation is hit exactly, same as Task 11's Case B for (x,y)
-        # Backward pass (du=1): zb[5]=0.9, zb[4]=0.9-0.3=0.6, zb[3]=0.6-(-0.1)=0.7,
-        # zb[2]=0.7-0.2=0.5, zb[1]=0.5-0.1=0.4 -> zb=[0.4, 0.5, 0.7, 0.6, 0.9].
-        # Forward/blend recursion (chains off the already-blended z_ref[i], same
-        # compounding structure as Task 11's (x,y) case, NOT plain linear
-        # interpolation between 0.0 and 0.9):
-        #   i=1, frac=1/4: z_ref[2] = 0.75*(0.0+0.1)  + 0.25*0.5 = 0.075  + 0.125 = 0.2
-        #   i=2, frac=2/4: z_ref[3] = 0.5*(0.2+0.2)   + 0.5*0.7  = 0.2    + 0.35  = 0.55
-        #   i=3, frac=3/4: z_ref[4] = 0.25*(0.55-0.1) + 0.75*0.6 = 0.1125 + 0.45  = 0.5625
-        # Independently verified three ways: by hand, in an isolated Julia scratch
-        # session, and via the deliberate bug-injection check described above.
-        @test z_ref ≈ [0.0, 0.2, 0.55, 0.5625, 0.9] atol=1e-12
+        # Backward pass (du=1, unaffected by the Task 17 fix below): zb[5]=0.9,
+        # zb[4]=0.9-0.3=0.6, zb[3]=0.6-(-0.1)=0.7, zb[2]=0.7-0.2=0.5,
+        # zb[1]=0.5-0.1=0.4 -> zb=[0.4, 0.5, 0.7, 0.6, 0.9].
+        #
+        # UPDATED during Task 17's cross-validation: the literals below were
+        # originally [0.0, 0.2, 0.55, 0.5625, 0.9], derived (both by hand and by
+        # this package's own from-scratch implementation) by exact analogy with
+        # Task 11's (x,y) blend formula, `fraction = i/(nu-1)`. Widening Task 17's
+        # cross-validation fixture set to include a >=2-long-section-column
+        # end-anchored file (the original 1-column synthetic_end_anchored.crg
+        # can't even load in the real C library) surfaced a real, systematic
+        # ~0.1-0.15m mismatch against the compiled oracle at every interior node
+        # -- traced to `calcRefLineZ` (crgLoader.c) NOT being symmetric with
+        # `calcRefLine`: it uses `fraction = i/(size-1)` (the raw 0-based loop
+        # index, not `i+1`) and stops one iteration earlier, so the true
+        # `fraction` at a given node is one node "behind" what the (x,y) case
+        # uses. See `integrate_reference_z`'s docstring in transform.jl for the
+        # full derivation. Corrected recursion (fraction now uses the PRIOR
+        # node's position in the blend, i.e. `(i-1)/(nu-1)` for the loop's `i`):
+        #   z_ref[5] = zb[5] = 0.9                              (anchor, set directly, never re-blended)
+        #   i=1, frac=0/4=0:    z_ref[2] = 1.00*(0.0+0.1)  + 0.00*0.5 = 0.1
+        #   i=2, frac=1/4=0.25: z_ref[3] = 0.75*(0.1+0.2)  + 0.25*0.7 = 0.225 + 0.175 = 0.4
+        #   i=3, frac=2/4=0.5:  z_ref[4] = 0.50*(0.4-0.1)  + 0.50*0.6 = 0.15  + 0.3   = 0.45
+        # Independently verified three ways: by hand (above), in an isolated
+        # Julia scratch session, and by cross-validating against the compiled C
+        # oracle's actual `crgEvaluv2z` output on `synthetic_end_anchored_2col.crg`
+        # (see test_crossvalidate.jl), which agrees bit-for-bit (within 1e-6).
+        @test z_ref ≈ [0.0, 0.1, 0.4, 0.45, 0.9] atol=1e-12
     end
 
     @testset "arrival-slope convention is the same in both the forward and backward passes" begin
@@ -211,20 +228,34 @@ end
         @test Y ≈ [-1.0 1.0 2.0; -2.0 2.0 4.0; 1.0 1.0 1.0]
     end
 
-    @testset "exact U-turn: known unguarded degeneracy, pinned not fixed (see docstring, Task 17)" begin
+    @testset "exact U-turn: epsilon-guarded fallback, ported and cross-validated in Task 17" begin
         # Equal-length segments meeting at an exact 180-degree hairpin send the
-        # miter rescale's denominator (and normalize2's chord length) to zero,
-        # producing NaN with no warning -- see the docstring paragraph added
-        # after Task 13's review for why this isn't purely theoretical (it's
-        # the DEFAULT segment-length configuration from integrate_reference_line's
-        # non-end-anchored branch). Deliberately NOT fixed here -- Task 17 will
-        # port the C reference's exact epsilon-guarded fallback. This test exists
-        # so a future change to this behavior is a deliberate decision, not a
-        # silent regression.
+        # miter rescale's denominator (and normalize2's chord length) to zero --
+        # this isn't purely theoretical (it's the DEFAULT segment-length
+        # configuration from integrate_reference_line's non-end-anchored branch).
+        #
+        # UPDATED during Task 17: this test originally pinned the UNGUARDED
+        # behavior (`isnan(X[2,1])`) as a deliberate "documented gap, not yet
+        # fixed" placeholder. Task 17's cross-validation loop added a synthetic
+        # hairpin fixture (`synthetic_hairpin.crg`, binary/KDBI so its phi
+        # channel encodes exact `Float64(pi)` with no ASCII-decimal truncation)
+        # and confirmed the real C oracle does NOT produce NaN here: `crgEvaluv2xy`
+        # returns the reference line's own point (to ~1e-16), for every v, at the
+        # hairpin node -- i.e. `normalizeVector2`'s and the rescale step's
+        # `1.0e-10` epsilon guards (crgEvaluv2xy.c ~lines 149/197) make the whole
+        # bisector collapse gracefully to a ~zero vector instead of blowing up.
+        # Those guards are now ported into `lateral_offset_grid` (see its
+        # docstring), so this exact scenario -- where the chord skipped over the
+        # hairpin node is bit-exactly `(0.0, 0.0)` -- now resolves to
+        # `offset_dir[2] = (0.0, 0.0)` too (via `normalize2`'s `length < 1.0e-10`
+        # branch returning its zero input unchanged, then the rescale's
+        # `abs(denom) > 1.0e-10` check also failing on that zero `n1`), so the
+        # offset point lands exactly ON the reference line, for any v.
         x = [0.0, 1.0, 0.0]
         y = [0.0, 0.0, 0.0]
         X, Y = OpenCRG.lateral_offset_grid(x, y, [1.0])
-        @test isnan(X[2, 1])
+        @test X[2, 1] == 1.0   # == x[2], not merely ≈ -- the guarded path is exact here (chord is bit-exact zero)
+        @test Y[2, 1] == 0.0   # == y[2]
     end
 end
 

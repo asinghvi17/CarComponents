@@ -128,6 +128,25 @@ mirrored relative to the C library — fix by negating `perp`'s output here,
 not by negating `v` itself, since `v`'s sign also matters for the banking
 term in `assemble_z_grid` (Task 14) and must stay consistent with the
 parsed `v` axis.
+
+Known unguarded degeneracy (found during Task 13's review, NOT fixed here —
+deferred to Task 17): an exact U-turn / coincident-endpoints kink (node
+`i-1` and node `i+1` at the same point, so the "chord skipping over node i"
+has zero length) sends `normalize2` to `0/0` and the miter rescale's
+`denom` toward zero, producing `NaN`/`Inf` in `offset_dir[i]` with no
+warning. This is NOT a purely theoretical corner case: `integrate_reference_line`'s
+non-end-anchored branch gives every segment exactly the same length `du` by
+construction, so an exact-180°-hairpin reference line — plausible for a
+pathological/adversarial input, if not a typical recorded track — hits this
+degenerate equal-length configuration by default, not by contrived
+construction. The reference implementation this task transcribes already
+guards against exactly this: `crgEvaluv2xy.c`'s `normalizeVector2` (~line
+197) returns its input unchanged rather than dividing when
+`length < 1.0e-10`, and its rescale step (~line 149) checks
+`fabs(dotProd) > 1.0e-10` before dividing, falling back to the un-rescaled
+normal otherwise. Task 17 should port those exact thresholds/fallbacks
+(cross-validatable directly against the compiled C oracle via FFI) rather
+than deriving new ones from scratch.
 """
 function lateral_offset_grid(x::Vector{Float64}, y::Vector{Float64}, v::Vector{Float64})
     nu = length(x)

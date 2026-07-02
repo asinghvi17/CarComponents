@@ -210,4 +210,20 @@ end
         @test X ≈ [0.0 0.0 0.0; 3.0 1.0 0.0; 3.0 1.0 0.0]
         @test Y ≈ [-1.0 1.0 2.0; -2.0 2.0 4.0; 1.0 1.0 1.0]
     end
+
+    @testset "exact U-turn: known unguarded degeneracy, pinned not fixed (see docstring, Task 17)" begin
+        # Equal-length segments meeting at an exact 180-degree hairpin send the
+        # miter rescale's denominator (and normalize2's chord length) to zero,
+        # producing NaN with no warning -- see the docstring paragraph added
+        # after Task 13's review for why this isn't purely theoretical (it's
+        # the DEFAULT segment-length configuration from integrate_reference_line's
+        # non-end-anchored branch). Deliberately NOT fixed here -- Task 17 will
+        # port the C reference's exact epsilon-guarded fallback. This test exists
+        # so a future change to this behavior is a deliberate decision, not a
+        # silent regression.
+        x = [0.0, 1.0, 0.0]
+        y = [0.0, 0.0, 0.0]
+        X, Y = OpenCRG.lateral_offset_grid(x, y, [1.0])
+        @test isnan(X[2, 1])
+    end
 end

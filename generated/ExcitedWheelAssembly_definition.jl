@@ -7,7 +7,7 @@
 import Moshi as __Ext__Moshi
 
 @doc Markdown.doc"""
-   ExcitedWheelAssembly(; name, positive_branch, spring, mirror, steering, iscut, angular_state, elastic_contact, elastic_mount, steering_f_crit, rod_radius)
+   ExcitedWheelAssembly(; name, positive_branch, spring, mirror, steering, iscut, angular_state, elastic_contact, elastic_mount, steering_f_crit, rod_radius, wheel_radius)
 
 Local copy of the MultibodyComponents suspension wheel assembly.
 
@@ -29,6 +29,7 @@ x/z position.
 | `elastic_mount`         | Mount the suspension to the chassis through a compliant 6-DOF Bushing.                         | --  |   false |
 | `steering_f_crit`         | Critical frequency for the steering-angle position source [Hz].                         | Hz  |   20 |
 | `rod_radius`         | Radius of the rods                         | --  |   0.02 |
+| `wheel_radius`         | Wheel radius [m]                         | m  |   0.2 |
 
 ## Connectors
 
@@ -44,7 +45,7 @@ connectors that can be connected together ([`Frame3D`](@ref))
 | `wheel_lateral_position`         | Wheel contact z-position                         | m  |
 | `steer_angle`         | Steering angle about the vertical axis                         | rad  |
 """
-@component function ExcitedWheelAssembly(; name = nothing, positive_branch=true, spring=true, mirror=false, steering=false, iscut=true, angular_state=true, elastic_contact=false, elastic_mount=false, steering_f_crit=Float64(20), rod_radius=0.02, kwargs...)
+@component function ExcitedWheelAssembly(; name = nothing, positive_branch=true, spring=true, mirror=false, steering=false, iscut=true, angular_state=true, elastic_contact=false, elastic_mount=false, steering_f_crit=Float64(20), rod_radius=0.02, wheel_radius=0.2, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -83,6 +84,9 @@ connectors that can be connected together ([`Frame3D`](@ref))
   __local__rod_radius = rod_radius
   append!(__params, @parameters (rod_radius::Real), [description = "Radius of the rods"])
   __initial_conditions[rod_radius] = __local__rod_radius
+  __local__wheel_radius = wheel_radius
+  append!(__params, @parameters (wheel_radius::Real), [description = "Wheel radius [m]"])
+  __initial_conditions[wheel_radius] = __local__wheel_radius
 
   ### Final Parameters (assignments)
   __bindings[dir] = ifelse(mirror, -1.0, 1.0)
@@ -132,7 +136,7 @@ connectors that can be connected together ([`Frame3D`](@ref))
   push!(__systems, @named rotational_losses = RotationalComponents.Components.Damper(d=0.1, rotational_losses_overrides...))
   # Subcomponent wheel of type CarComponents.SlippingWheel
   wheel_overrides = __pop_subcomponent_overrides!(__overrides, "wheel")
-  push!(__systems, @named wheel = CarComponents.SlippingWheel(radius=0.2, m=15, I_axis=0.8, I_long=0.8, iscut=iscut, angular_state=angular_state, elastic_contact=elastic_contact, surface=true, wheel_overrides...))
+  push!(__systems, @named wheel = CarComponents.SlippingWheel(radius=wheel_radius, m=15, I_axis=0.8, I_long=0.8, iscut=iscut, angular_state=angular_state, elastic_contact=elastic_contact, surface=true, wheel_overrides...))
   # Subcomponent mount of type MultibodyComponents.Bushing
   mount_overrides = __pop_subcomponent_overrides!(__overrides, "mount")
   if elastic_mount

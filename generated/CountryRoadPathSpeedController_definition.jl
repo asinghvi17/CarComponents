@@ -24,9 +24,9 @@ four wheels opposing each wheel's spin direction.
 | `center_z_profile`         | Reference-line z(x) profile                         | --  |   CarComponen...erpolator() |
 | `center_heading_profile`         | Reference-line heading(x) profile                         | --  |   CarComponen...erpolator() |
 | `target_speed`         | Target road-tangent speed [m/s]                         | m/s  |   6.0 |
-| `steer_limit`         | Smooth steering saturation limit [rad]                         | rad  |   0.35 |
-| `heading_gain`         | Heading-error feedback gain                         | --  |   1.2 |
-| `lateral_gain`         | Lateral-position feedback gain                         | --  |   0.3 |
+| `steer_limit`         | Smooth steering saturation limit [rad]                         | rad  |   0.45 |
+| `heading_gain`         | Heading-error feedback gain                         | --  |   3.0 |
+| `lateral_gain`         | Lateral-position feedback gain                         | --  |   1.5 |
 | `drive_speed_gain`         | Proportional drive torque gain [N*m per (m/s)]                         | --  |   450.0 |
 | `drive_integral_gain`         | Integral drive torque gain [N*m per m]                         | --  |   25.0 |
 | `brake_speed_gain`         | Proportional brake torque gain [N*m per (m/s)]                         | --  |   700.0 |
@@ -63,7 +63,7 @@ four wheels opposing each wheel's spin direction.
 | `raw_drive_torque`         |                          | N.m  |
 | `raw_brake_torque`         |                          | N.m  |
 """
-@component function CountryRoadPathSpeedController(; name = nothing, center_z_profile=CarComponents.country_road_center_z_interpolator(), center_heading_profile=CarComponents.country_road_heading_interpolator(), target_speed=Float64(6.0), steer_limit=0.35, heading_gain=1.2, lateral_gain=0.3, drive_speed_gain=Float64(450.0), drive_integral_gain=Float64(25.0), brake_speed_gain=Float64(700.0), max_drive_torque=Float64(900.0), max_brake_torque=Float64(1200.0), speed_eps=0.0001, torque_eps=0.1, kwargs...)
+@component function CountryRoadPathSpeedController(; name = nothing, center_z_profile=CarComponents.country_road_center_z_interpolator(), center_heading_profile=CarComponents.country_road_heading_interpolator(), target_speed=Float64(6.0), steer_limit=0.45, heading_gain=Float64(3.0), lateral_gain=1.5, drive_speed_gain=Float64(450.0), drive_integral_gain=Float64(25.0), brake_speed_gain=Float64(700.0), max_drive_torque=Float64(900.0), max_brake_torque=Float64(1200.0), speed_eps=0.0001, torque_eps=0.1, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:

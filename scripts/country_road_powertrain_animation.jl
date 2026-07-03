@@ -15,14 +15,19 @@ const VIDEO_PATH = joinpath(OUTDIR, "country_road_powertrain_car_dashboard.mp4")
 const PREVIEW_PATH = joinpath(OUTDIR, "country_road_powertrain_car_dashboard_preview.png")
 const G0 = 9.80665
 
+const COUNTRY_ROAD_TARGET_AXLE_SPACING = 2.3481016274718134
+const COUNTRY_ROAD_TARGET_WHEEL_RADIUS = 0.30760131319880757
+
 function compile_controlled_country_model(road_surface, center_z_profile, center_heading_profile;
         target_speed = 6.0, drive_speed_gain = 450.0, drive_integral_gain = 25.0,
         brake_speed_gain = 700.0, max_drive_torque = 900.0, max_brake_torque = 1200.0)
     @named model = CarComponents.ControlledCountryRoadCarWithPowertrain(
         wheel_elastic_contact = true,
-        steer_limit = 0.35,
-        heading_gain = 1.2,
-        lateral_gain = 0.3,
+        axle_spacing = COUNTRY_ROAD_TARGET_AXLE_SPACING,
+        wheel_radius = COUNTRY_ROAD_TARGET_WHEEL_RADIUS,
+        steer_limit = 0.45,
+        heading_gain = 3.0,
+        lateral_gain = 1.5,
         target_speed = target_speed,
         drive_speed_gain = drive_speed_gain,
         drive_integral_gain = drive_integral_gain,
@@ -70,7 +75,7 @@ function country_initial_conditions(sys, road_surface, center_z_profile, center_
         push!(defs, corner.suspension.cs => 5 * 4000)
         push!(defs, corner.suspension.r2.phi => 5.932380614359173)
         push!(defs, corner.wheel_rotation.phi => 0.0)
-        push!(defs, corner.wheel_rotation.w => -dir * speed / 0.2)
+        push!(defs, corner.wheel_rotation.w => -dir * speed / COUNTRY_ROAD_TARGET_WHEEL_RADIUS)
     end
 
     append!(defs, [
@@ -165,13 +170,18 @@ function static_baseline(sys, road_surface, center_z_profile, center_heading_pro
     )
 end
 
-function road_mesh(data)
+function simulated_road_ribbon_mesh(data, road_surface, center_z_profile, center_heading_profile)
     points = GLMakie.Point3f[]
-    for j in axes(data.X, 2), i in axes(data.X, 1)
-        push!(points, GLMakie.Point3f(Float32(data.X[i, j]), Float32(data.Y[i, j]), Float32(data.Z[i, j])))
+    for j in eachindex(data.v_axis), i in eachindex(data.x_axis)
+        x = data.x_axis[i]
+        heading = center_heading_profile(x)
+        z = center_z_profile(x) + data.v_axis[j] / cos(heading)
+        y = road_surface(x, z)
+        push!(points, GLMakie.Point3f(Float32(x), Float32(y), Float32(z)))
     end
 
-    nx, nz = size(data.X)
+    nx = length(data.x_axis)
+    nz = length(data.v_axis)
     faces = GLMakie.GeometryBasics.GLTriangleFace[]
     for j in 1:(nz - 1), i in 1:(nx - 1)
         a = (j - 1) * nx + i
@@ -183,6 +193,13 @@ function road_mesh(data)
     end
 
     return GLMakie.GeometryBasics.Mesh(points, faces)
+end
+
+function simulated_centerline(data, road_surface, center_z_profile)
+    x = collect(data.x_axis)
+    z = [center_z_profile(xi) for xi in x]
+    y = [road_surface(x[i], z[i]) for i in eachindex(x)]
+    return x, y, z
 end
 
 function dashboard_data(sys, sol, road_data, road_surface, center_z_profile, center_heading_profile, baseline, target_speed)
@@ -296,8 +313,10 @@ function build_dashboard(model, sys, sol, road_data, road_surface, center_z_prof
         tellwidth = false,
     )
 
-    GLMakie.mesh!(scene, road_mesh(road_data); color = (:gray65, 0.55), transparency = true)
-    GLMakie.lines!(scene, road_data.X[:, argmin(abs.(road_data.v_axis .- 0.0))], road_data.Y[:, argmin(abs.(road_data.v_axis .- 0.0))] .+ 0.035, road_data.Z[:, argmin(abs.(road_data.v_axis .- 0.0))]; color = :deepskyblue, linewidth = 5)
+    ribbon = simulated_road_ribbon_mesh(road_data, road_surface, center_z_profile, center_heading_profile)
+    centerline_x, centerline_y, centerline_z = simulated_centerline(road_data, road_surface, center_z_profile)
+    GLMakie.mesh!(scene, ribbon; color = (:gray65, 0.55), transparency = true)
+    GLMakie.lines!(scene, centerline_x, centerline_y .+ 0.035, centerline_z; color = :deepskyblue, linewidth = 5)
     GLMakie.lines!(scene, data.body_x, [road_surface(data.body_x[i], data.body_z[i]) + 0.05 for i in eachindex(data.body_x)], data.body_z; color = :orange, linewidth = 4)
 
     status = GLMakie.Observable("t = 0.00 s    x = 0.00 m    speed = 0.00 m/s    drive = 0.00 kN*m    brake = 0.00 kN*m")
@@ -310,7 +329,7 @@ function build_dashboard(model, sys, sol, road_data, road_surface, center_z_prof
         title = "Country-road route and vehicle path",
         aspect = GLMakie.DataAspect(),
     )
-    GLMakie.lines!(ax1, road_data.X[:, argmin(abs.(road_data.v_axis .- 0.0))], road_data.Z[:, argmin(abs.(road_data.v_axis .- 0.0))]; color = :black, linewidth = 2, label = "OpenCRG reference line")
+    GLMakie.lines!(ax1, centerline_x, centerline_z; color = :black, linewidth = 2, label = "simulated reference line")
     GLMakie.lines!(ax1, data.body_x, data.body_z; color = :orange, linewidth = 2, label = "chassis path")
     GLMakie.axislegend(ax1; position = :lb, labelsize = 12)
 

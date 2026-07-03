@@ -22,9 +22,9 @@ command. World Y is vertical and is not used by this path controller.
 | ------------ | ----------------------------------- | ------ | --------------- |
 | `center_z_profile`         | Reference-line z(x) profile                         | --  |   CarComponen...erpolator() |
 | `center_heading_profile`         | Reference-line heading(x) profile                         | --  |   CarComponen...erpolator() |
-| `steer_limit`         | Smooth steering saturation limit [rad]                         | rad  |   0.35 |
-| `heading_gain`         | Heading-error feedback gain                         | --  |   1.2 |
-| `lateral_gain`         | Lateral-position feedback gain                         | --  |   0.3 |
+| `steer_limit`         | Smooth steering saturation limit [rad]                         | rad  |   0.45 |
+| `heading_gain`         | Heading-error feedback gain                         | --  |   3.0 |
+| `lateral_gain`         | Lateral-position feedback gain                         | --  |   1.5 |
 
 ## Connectors
 
@@ -43,7 +43,7 @@ command. World Y is vertical and is not used by this path controller.
 | `heading_error`         |                          | rad  |
 | `raw_steer`         |                          | rad  |
 """
-@component function CountryRoadPathSteeringController(; name = nothing, center_z_profile=CarComponents.country_road_center_z_interpolator(), center_heading_profile=CarComponents.country_road_heading_interpolator(), steer_limit=0.35, heading_gain=1.2, lateral_gain=0.3, kwargs...)
+@component function CountryRoadPathSteeringController(; name = nothing, center_z_profile=CarComponents.country_road_center_z_interpolator(), center_heading_profile=CarComponents.country_road_heading_interpolator(), steer_limit=0.45, heading_gain=Float64(3.0), lateral_gain=1.5, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:

@@ -23,7 +23,7 @@ component ExcitedWheelAssembly
   "Assembly branch (elbow up/down) of the suspension's analytic loop closure"
   structural parameter positive_branch::Boolean = true
   rotational_losses = RotationalComponents.Components.Damper(d = 0.1) {^rotational_losses}
-  wheel = SlippingWheel(radius = 0.2, m = 15, I_axis = 0.8, I_long = 0.8, iscut = iscut, angular_state = angular_state, elastic_contact = elastic_contact, surface = true) {^wheel}
+  wheel = SlippingWheel(radius = wheel_radius, m = 15, I_axis = 0.8, I_long = 0.8, iscut = iscut, angular_state = angular_state, elastic_contact = elastic_contact, surface = true) {^wheel}
   structural parameter spring::Boolean = true
   structural parameter mirror::Boolean = false
   "Include a steering revolute between the suspension upright and wheel spin axis."
@@ -41,6 +41,9 @@ component ExcitedWheelAssembly
   mount = MultibodyComponents.Bushing() if elastic_mount {^mount}
   "Radius of the rods"
   parameter rod_radius::Real = 0.02
+  "Wheel radius [m]"
+  parameter wheel_radius::Length = 0.2
+
   final parameter dir::Real = ifelse(mirror, -1.0, 1.0)
   final parameter n_wheel::Real[3] = [0, 0, dir]
 relations

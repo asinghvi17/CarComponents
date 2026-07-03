@@ -8,12 +8,12 @@ is assumed to handle local road orientation effects.
 component FullCar
   world = MultibodyComponents.World() {^world}
   front_axle = MultibodyComponents.BodyShape(m = ms / 4, r = [0, 0, -wheel_base], radius = 0.1, color = gray) {^front_axle}
-  back_front = MultibodyComponents.BodyShape(m = ms / 2, r = [-2, 0, 0], radius = 0.2, color = gray, orientation_state = MultibodyComponents.OrientationState.Euler(), statePriority = 1000, linearStatePriority = 1000) {^back_front}
+  back_front = MultibodyComponents.BodyShape(m = ms / 2, r = [-axle_spacing, 0, 0], radius = 0.2, color = gray, orientation_state = MultibodyComponents.OrientationState.Euler(), statePriority = 1000, linearStatePriority = 1000) {^back_front}
   back_axle = MultibodyComponents.BodyShape(m = ms / 4, r = [0, 0, -wheel_base], radius = 0.1, color = gray) {^back_axle}
-  excited_suspension_fr = ExcitedWheelAssembly(mirror = false, rod_radius = rod_radius, steering = true, angular_state = false, iscut = false, elastic_contact = wheel_elastic_contact, elastic_mount = chassis_bushings) {^excited_suspension_fr}
-  excited_suspension_fl = ExcitedWheelAssembly(mirror = true, rod_radius = rod_radius, steering = true, angular_state = false, iscut = false, elastic_contact = wheel_elastic_contact, elastic_mount = chassis_bushings) {^excited_suspension_fl}
-  excited_suspension_br = ExcitedWheelAssembly(mirror = false, rod_radius = rod_radius, steering = false, angular_state = false, iscut = false, elastic_contact = wheel_elastic_contact, elastic_mount = chassis_bushings) {^excited_suspension_br}
-  excited_suspension_bl = ExcitedWheelAssembly(mirror = true, rod_radius = rod_radius, steering = false, angular_state = false, iscut = false, elastic_contact = wheel_elastic_contact, elastic_mount = chassis_bushings) {^excited_suspension_bl}
+  excited_suspension_fr = ExcitedWheelAssembly(mirror = false, rod_radius = rod_radius, wheel_radius = wheel_radius, steering = true, angular_state = false, iscut = false, elastic_contact = wheel_elastic_contact, elastic_mount = chassis_bushings) {^excited_suspension_fr}
+  excited_suspension_fl = ExcitedWheelAssembly(mirror = true, rod_radius = rod_radius, wheel_radius = wheel_radius, steering = true, angular_state = false, iscut = false, elastic_contact = wheel_elastic_contact, elastic_mount = chassis_bushings) {^excited_suspension_fl}
+  excited_suspension_br = ExcitedWheelAssembly(mirror = false, rod_radius = rod_radius, wheel_radius = wheel_radius, steering = false, angular_state = false, iscut = false, elastic_contact = wheel_elastic_contact, elastic_mount = chassis_bushings) {^excited_suspension_br}
+  excited_suspension_bl = ExcitedWheelAssembly(mirror = true, rod_radius = rod_radius, wheel_radius = wheel_radius, steering = false, angular_state = false, iscut = false, elastic_contact = wheel_elastic_contact, elastic_mount = chassis_bushings) {^excited_suspension_bl}
   "Front-right road height input"
   road_height_fr = RealInput() {^road_height_fr}
   "Front-left road height input"
@@ -43,8 +43,12 @@ component FullCar
   wheel_lateral_position_br = RealOutput() {^wheel_lateral_position_br}
   "Back-left wheel contact z-position output"
   wheel_lateral_position_bl = RealOutput() {^wheel_lateral_position_bl}
-  "Wheelbase / track distance [m]"
+  "Half track / lateral half-axle distance [m]"
   parameter wheel_base::Real = 1
+  "Longitudinal axle spacing / wheelbase [m]"
+  parameter axle_spacing::Length = 2.0
+  "Wheel radius [m]"
+  parameter wheel_radius::Length = 0.2
   "Mass of the car [kg]"
   parameter ms::Mass = 1500
   "Radius of the rods"

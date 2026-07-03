@@ -7,7 +7,7 @@
 import Moshi as __Ext__Moshi
 
 @doc Markdown.doc"""
-   ControlledBelgianRoadStraightLineCar(; name, wheel_elastic_contact, chassis_bushings, road_surface, wheel_base, ms, rod_radius, path_z_ref, steer_limit, heading_gain, lateral_gain)
+   ControlledBelgianRoadStraightLineCar(; name, wheel_elastic_contact, chassis_bushings, road_surface, wheel_base, axle_spacing, wheel_radius, ms, rod_radius, path_z_ref, steer_limit, heading_gain, lateral_gain)
 
 Belgian-block-road car with a separate straight-line steering controller.
 
@@ -23,7 +23,9 @@ only through measured chassis pose and commanded steering angle.
 | `wheel_elastic_contact`         | Use compliant tire contact on all four corners.                         | --  |   false |
 | `chassis_bushings`         | Mount each suspension corner to the chassis through a compliant 6-DOF Bushing.                         | --  |   false |
 | `road_surface`         | Callable road-height surface y = f(x, z) [m]                         | --  |   CarComponen...erpolator() |
-| `wheel_base`         | Wheelbase / track distance [m]                         | --  |   1 |
+| `wheel_base`         | Half track / lateral half-axle distance [m]                         | --  |   1 |
+| `axle_spacing`         | Longitudinal axle spacing / wheelbase [m]                         | m  |   2.0 |
+| `wheel_radius`         | Wheel radius [m]                         | m  |   0.2 |
 | `ms`         | Mass of the car [kg]                         | kg  |   1500 |
 | `rod_radius`         | Radius of the rods                         | --  |   0.02 |
 | `path_z_ref`         | Target z-coordinate for the straight path                         | --  |   0.0 |
@@ -48,7 +50,7 @@ only through measured chassis pose and commanded steering angle.
  * `wheel_lateral_position_br` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `wheel_lateral_position_bl` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function ControlledBelgianRoadStraightLineCar(; name = nothing, wheel_elastic_contact=false, chassis_bushings=false, road_surface=CarComponents.belgian_block_surface_interpolator(), wheel_base=Float64(1), ms=Float64(1500), rod_radius=0.02, path_z_ref=Float64(0.0), steer_limit=0.25, heading_gain=0.8, lateral_gain=0.25, kwargs...)
+@component function ControlledBelgianRoadStraightLineCar(; name = nothing, wheel_elastic_contact=false, chassis_bushings=false, road_surface=CarComponents.belgian_block_surface_interpolator(), wheel_base=Float64(1), axle_spacing=Float64(2.0), wheel_radius=0.2, ms=Float64(1500), rod_radius=0.02, path_z_ref=Float64(0.0), steer_limit=0.25, heading_gain=0.8, lateral_gain=0.25, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -82,8 +84,14 @@ only through measured chassis pose and commanded steering angle.
 
   ### Symbolic Parameters
   __local__wheel_base = wheel_base
-  append!(__params, @parameters (wheel_base::Real), [description = "Wheelbase / track distance [m]"])
+  append!(__params, @parameters (wheel_base::Real), [description = "Half track / lateral half-axle distance [m]"])
   __initial_conditions[wheel_base] = __local__wheel_base
+  __local__axle_spacing = axle_spacing
+  append!(__params, @parameters (axle_spacing::Real), [description = "Longitudinal axle spacing / wheelbase [m]"])
+  __initial_conditions[axle_spacing] = __local__axle_spacing
+  __local__wheel_radius = wheel_radius
+  append!(__params, @parameters (wheel_radius::Real), [description = "Wheel radius [m]"])
+  __initial_conditions[wheel_radius] = __local__wheel_radius
   __local__ms = ms
   append!(__params, @parameters (ms::Real), [description = "Mass of the car [kg]", bounds = (0, Inf)])
   __initial_conditions[ms] = __local__ms
@@ -138,22 +146,22 @@ only through measured chassis pose and commanded steering angle.
   push!(__systems, @named front_axle = MultibodyComponents.BodyShape(m=ms / 4, r=[0, 0, -wheel_base], radius=0.1, color=gray, front_axle_overrides...))
   # Subcomponent back_front of type MultibodyComponents.BodyShape
   back_front_overrides = __pop_subcomponent_overrides!(__overrides, "back_front")
-  push!(__systems, @named back_front = MultibodyComponents.BodyShape(m=ms / 2, r=[-2, 0, 0], radius=0.2, color=gray, orientation_state=MultibodyComponents.OrientationState.Euler(), statePriority=1000, linearStatePriority=1000, back_front_overrides...))
+  push!(__systems, @named back_front = MultibodyComponents.BodyShape(m=ms / 2, r=[-axle_spacing, 0, 0], radius=0.2, color=gray, orientation_state=MultibodyComponents.OrientationState.Euler(), statePriority=1000, linearStatePriority=1000, back_front_overrides...))
   # Subcomponent back_axle of type MultibodyComponents.BodyShape
   back_axle_overrides = __pop_subcomponent_overrides!(__overrides, "back_axle")
   push!(__systems, @named back_axle = MultibodyComponents.BodyShape(m=ms / 4, r=[0, 0, -wheel_base], radius=0.1, color=gray, back_axle_overrides...))
   # Subcomponent excited_suspension_fr of type CarComponents.ExcitedWheelAssembly
   excited_suspension_fr_overrides = __pop_subcomponent_overrides!(__overrides, "excited_suspension_fr")
-  push!(__systems, @named excited_suspension_fr = CarComponents.ExcitedWheelAssembly(mirror=false, rod_radius=rod_radius, steering=true, angular_state=false, iscut=false, elastic_contact=wheel_elastic_contact, elastic_mount=chassis_bushings, excited_suspension_fr_overrides...))
+  push!(__systems, @named excited_suspension_fr = CarComponents.ExcitedWheelAssembly(mirror=false, rod_radius=rod_radius, wheel_radius=wheel_radius, steering=true, angular_state=false, iscut=false, elastic_contact=wheel_elastic_contact, elastic_mount=chassis_bushings, excited_suspension_fr_overrides...))
   # Subcomponent excited_suspension_fl of type CarComponents.ExcitedWheelAssembly
   excited_suspension_fl_overrides = __pop_subcomponent_overrides!(__overrides, "excited_suspension_fl")
-  push!(__systems, @named excited_suspension_fl = CarComponents.ExcitedWheelAssembly(mirror=true, rod_radius=rod_radius, steering=true, angular_state=false, iscut=false, elastic_contact=wheel_elastic_contact, elastic_mount=chassis_bushings, excited_suspension_fl_overrides...))
+  push!(__systems, @named excited_suspension_fl = CarComponents.ExcitedWheelAssembly(mirror=true, rod_radius=rod_radius, wheel_radius=wheel_radius, steering=true, angular_state=false, iscut=false, elastic_contact=wheel_elastic_contact, elastic_mount=chassis_bushings, excited_suspension_fl_overrides...))
   # Subcomponent excited_suspension_br of type CarComponents.ExcitedWheelAssembly
   excited_suspension_br_overrides = __pop_subcomponent_overrides!(__overrides, "excited_suspension_br")
-  push!(__systems, @named excited_suspension_br = CarComponents.ExcitedWheelAssembly(mirror=false, rod_radius=rod_radius, steering=false, angular_state=false, iscut=false, elastic_contact=wheel_elastic_contact, elastic_mount=chassis_bushings, excited_suspension_br_overrides...))
+  push!(__systems, @named excited_suspension_br = CarComponents.ExcitedWheelAssembly(mirror=false, rod_radius=rod_radius, wheel_radius=wheel_radius, steering=false, angular_state=false, iscut=false, elastic_contact=wheel_elastic_contact, elastic_mount=chassis_bushings, excited_suspension_br_overrides...))
   # Subcomponent excited_suspension_bl of type CarComponents.ExcitedWheelAssembly
   excited_suspension_bl_overrides = __pop_subcomponent_overrides!(__overrides, "excited_suspension_bl")
-  push!(__systems, @named excited_suspension_bl = CarComponents.ExcitedWheelAssembly(mirror=true, rod_radius=rod_radius, steering=false, angular_state=false, iscut=false, elastic_contact=wheel_elastic_contact, elastic_mount=chassis_bushings, excited_suspension_bl_overrides...))
+  push!(__systems, @named excited_suspension_bl = CarComponents.ExcitedWheelAssembly(mirror=true, rod_radius=rod_radius, wheel_radius=wheel_radius, steering=false, angular_state=false, iscut=false, elastic_contact=wheel_elastic_contact, elastic_mount=chassis_bushings, excited_suspension_bl_overrides...))
   # Subcomponent controller of type CarComponents.StraightLineSteeringController
   controller_overrides = __pop_subcomponent_overrides!(__overrides, "controller")
   push!(__systems, @named controller = CarComponents.StraightLineSteeringController(z_ref=path_z_ref, steer_limit=steer_limit, heading_gain=heading_gain, lateral_gain=lateral_gain, controller_overrides...))

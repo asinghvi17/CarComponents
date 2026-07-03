@@ -20,11 +20,11 @@ component CountryRoadPathSteeringController
   "Reference-line heading(x) profile"
   structural parameter center_heading_profile::RoadProfile1D = CarComponents.country_road_heading_interpolator()
   "Smooth steering saturation limit [rad]"
-  parameter steer_limit::Angle = 0.35
+  parameter steer_limit::Angle = 0.45
   "Heading-error feedback gain"
-  parameter heading_gain::Real = 1.2
+  parameter heading_gain::Real = 3.0
   "Lateral-position feedback gain"
-  parameter lateral_gain::Real = 0.3
+  parameter lateral_gain::Real = 1.5
   variable desired_z::Length
   variable desired_heading::Angle
   variable lateral_error::Length
@@ -56,11 +56,11 @@ component ControlledCountryRoadCar
   "Reference-line heading(x) profile"
   structural parameter center_heading_profile::RoadProfile1D = CarComponents.country_road_heading_interpolator()
   "Smooth steering saturation limit [rad]"
-  parameter steer_limit::Angle = 0.35
+  parameter steer_limit::Angle = 0.45
   "Heading-error feedback gain"
-  parameter heading_gain::Real = 1.2
+  parameter heading_gain::Real = 3.0
   "Lateral-position feedback gain"
-  parameter lateral_gain::Real = 0.3
+  parameter lateral_gain::Real = 1.5
 relations
   road_height_fr = road_surface(wheel_position_fr, wheel_lateral_position_fr)
   road_height_fl = road_surface(wheel_position_fl, wheel_lateral_position_fl)
@@ -107,11 +107,11 @@ component CountryRoadPathSpeedController
   "Target road-tangent speed [m/s]"
   parameter target_speed::Velocity = 6.0
   "Smooth steering saturation limit [rad]"
-  parameter steer_limit::Angle = 0.35
+  parameter steer_limit::Angle = 0.45
   "Heading-error feedback gain"
-  parameter heading_gain::Real = 1.2
+  parameter heading_gain::Real = 3.0
   "Lateral-position feedback gain"
-  parameter lateral_gain::Real = 0.3
+  parameter lateral_gain::Real = 1.5
   "Proportional drive torque gain [N*m per (m/s)]"
   parameter drive_speed_gain::Real = 450.0
   "Integral drive torque gain [N*m per m]"
@@ -180,11 +180,11 @@ component ControlledCountryRoadCarWithPowertrain
   "Target road-tangent speed [m/s]"
   parameter target_speed::Velocity = 6.0
   "Smooth steering saturation limit [rad]"
-  parameter steer_limit::Angle = 0.35
+  parameter steer_limit::Angle = 0.45
   "Heading-error feedback gain"
-  parameter heading_gain::Real = 1.2
+  parameter heading_gain::Real = 3.0
   "Lateral-position feedback gain"
-  parameter lateral_gain::Real = 0.3
+  parameter lateral_gain::Real = 1.5
   "Proportional drive torque gain [N*m per (m/s)]"
   parameter drive_speed_gain::Real = 450.0
   "Integral drive torque gain [N*m per m]"

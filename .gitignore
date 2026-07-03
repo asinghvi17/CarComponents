@@ -8,3 +8,6 @@
 /.migration-backups/
 /lib/LibOpenCRG/build/
 /scripts/data/
+
+# Machine-specific Claude Code overrides (DISPLAY/XAUTHORITY for GLMakie, etc.)
+/.claude/settings.local.json

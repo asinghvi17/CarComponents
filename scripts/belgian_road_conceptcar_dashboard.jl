@@ -24,9 +24,10 @@
 #   • Scene is Z-UP; the MBC plots are authored in SIM (Y-up) coords and the LScene carries a
 #     single Q_X90 root rotation.  The camera + lights live in world space (s3 mapping).
 #   • usdplot up = :z; car rotation = rot_to_quat(R_sim)·Q_BASE (scene already carries Q_X90).
-#   • replace_scene! ticks on the HOST GLMakie window: each GLMakie.colorbuffer(glscr) fires
-#     render_tick → sync (reset on change) → steps_per_tick RTX steps → blit.  A moved frame
-#     resets accumulation, so per recorded frame we tick NTICKS× for NTICKS·steps_per_tick samples.
+#   • Recording follows the replace_scene! docstring recipe (OmniverseMakie ≥ fefb7e4): stop the
+#     GLMakie renderloop (close_after_renderloop = false!), then OM.record_frame!(session; ticks)
+#     per frame — each tick is one synchronous GLMakie.colorbuffer (render_tick → sync →
+#     steps_per_tick RTX steps → blit → composite), so a frame = ticks × steps_per_tick samples.
 
 using CarComponents
 using ModelingToolkit
@@ -295,8 +296,7 @@ end
 # sim (Y-up) → scene (Z-up): p_scene = (x, −z, y) = R_x(+90°)·p_sim (det +1, no mirror)
 s3(x, y, z) = MK.Vec3f(x, -z, y)
 s3(v) = s3(v[1], v[2], v[3])
-const Q_X90     = MK.qrotation(MK.Vec3f(1, 0, 0), Float32(π / 2))
-const Q_X90_INV = MK.qrotation(MK.Vec3f(1, 0, 0), Float32(-π / 2))
+const Q_X90  = MK.qrotation(MK.Vec3f(1, 0, 0), Float32(π / 2))
 const Q_BASE = MK.qrotation(MK.Vec3f(0, 1, 0), Float32(-π / 2))   # asset nose(−z) → sim +x
 
 # ====================== procedural textures (deterministic, cached in DATA) ======================
@@ -672,39 +672,24 @@ end
 glscr = GLMakie.Screen(; visible = false, px_per_unit = 1, scalefactor = 1)
 display(glscr, fig.scene)
 GLMakie.colorbuffer(glscr)                                 # layout pass (viewport rects settle)
-# STOP the async renderloop: the embedded blit re-dirties the scene every tick, so a running
-# on-demand loop self-sustains at full rate on the main thread and starves libuv — the ffmpeg
-# pipe write never completes (48-byte mp4, GPU pinned at 99%).  colorbuffer() is loop-independent
-# and synchronous: pollevents fires render_tick (one embedded tick) → poll_updates → render_frame.
-GLMakie.stop_renderloop!(glscr; close_after_renderloop = false)   # default true CLOSES the screen
+# The replace_scene! recording recipe: STOP the async renderloop (the embedded blit re-dirties
+# the scene every tick, so a running loop self-sustains and starves libuv — pipe writes hang) and
+# drive frames synchronously via record_frame!.  close_after_renderloop must be false (the
+# default CLOSES the screen).
+GLMakie.stop_renderloop!(glscr; close_after_renderloop = false)
 logmsg("LScene viewport: $(ls.scene.viewport[]) (renderloop stopped, screen open=$(isopen(glscr)))")
 
 session = OM.replace_scene!(ls; steps_per_tick = 8)
 logmsg("embedded session up: $(length(session.screen.plot2robj)) plots authored, " *
        "fb_size=$(session.screen.fb_size)")
 OM.push_environment_image!(session.screen, SKY; intensity = 0.7)   # live swap (post-author)
-# Pre-fefb7e4 OmniverseMakie: the overlay sub-scene was a transformation CHILD of the target
-# scene, inherited our Q_X90 root rotation, and the pixel-space blit quad turned edge-on
-# (invisible — the composite showed plain GL underneath).  Fixed upstream (unparented identity
-# Transformation, OmniverseMakie fefb7e4); counter-rotate ONLY when the overlay is parented —
-# on a fixed OM the counter-rotation itself would break the composite.
-if isassigned(session.sub_scene.transformation.parent)
-    MK.rotate!(session.sub_scene, Q_X90_INV)
-    logmsg("pre-fefb7e4 OmniverseMakie: counter-rotated the overlay sub-scene")
-end
 
-# One recorded frame = NTICKS host ticks: tick 1 syncs the moved car (accumulation resets) and
-# renders 8 steps; the remaining ticks accumulate 8 more each without a reset → 24 samples,
-# and the LAST tick's blit is composited by its own colorbuffer (no one-frame lag risk).
-const NTICKS = 3
-tick!() = GLMakie.colorbuffer(glscr)
+# One recorded frame = 3 synchronous host ticks (3 × steps_per_tick = 24 RTX samples: the first
+# tick syncs the moved car and resets accumulation, the rest refine) — record_frame! is the
+# scripted-recording companion to replace_scene!; see its docstring's recipe.
 function frame!(i)
     set_frame!(i)
-    local img
-    for _ in 1:NTICKS
-        img = tick!()
-    end
-    return img
+    return OM.record_frame!(session; ticks = 3)
 end
 
 for (tgt, _, _, _, _, _) in WHEELS                         # MUST_EXIST re-probe (throws if wrong)

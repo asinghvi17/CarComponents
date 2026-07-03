@@ -1,0 +1,1 @@
+- Always use `julia +dyad-3.2.0-next.87` to run julia in this project.

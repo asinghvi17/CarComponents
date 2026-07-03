@@ -1,0 +1,410 @@
+
+[2143521] signal 2: Interrupt
+in expression starting at /tmp/claude-1000/-home-juliahub-temp-CarComponents/840f304c-875e-4970-bd71-ac38d708413e/scratchpad/solve_and_save.jl:54
+unknown function (ip: 0x73342a2acae0) at /usr/lib/x86_64-linux-gnu/libc.so.6
+unknown function (ip: 0x73342a2a05eb) at /usr/lib/x86_64-linux-gnu/libc.so.6
+unknown function (ip: 0x73342a2a09c6) at /usr/lib/x86_64-linux-gnu/libc.so.6
+pthread_cond_wait at /usr/lib/x86_64-linux-gnu/libc.so.6 (unknown line)
+uv_cond_wait at /workspace/srcdir/libuv/src/unix/thread.c:822
+ijl_task_get_next at /cache/build/builder-amdci5-7/julialang/julia-release-1-dot-12/src/scheduler.c:523
+poptask at ./task.jl:1216
+wait at ./task.jl:1228
+#wait#398 at ./condition.jl:141
+wait at ./condition.jl:136 [inlined]
+_trywait at ./asyncevent.jl:185
+profile_printing_listener at ./Base.jl:332
+#start_profile_listener##0 at ./Base.jl:352
+jfptr_YY.start_profile_listenerYY.YY.0_81908.1 at /home/juliahub/.julia/juliaup/julia-1.12.6+dyad-3x2x0-nextx87.x64.linux.musl/lib/julia/sys.so (unknown line)
+jl_apply at /cache/build/builder-amdci5-7/julialang/julia-release-1-dot-12/src/julia.h:2392 [inlined]
+start_task at /cache/build/builder-amdci5-7/julialang/julia-release-1-dot-12/src/task.c:1252
+unknown function (ip: (nil)) at (unknown file)
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:202
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:202
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+macro expansion at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:95 [inlined]
+macro expansion at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/small_array.jl:358 [inlined]
+macro expansion at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:92 [inlined]
+macro expansion at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/small_array.jl:358 [inlined]
+isequal_argsvec at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:91
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:196
+macro expansion at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:95 [inlined]
+macro expansion at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/small_array.jl:354 [inlined]
+macro expansion at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:92 [inlined]
+macro expansion at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/small_array.jl:354 [inlined]
+isequal_argsvec at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:91
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:196
+macro expansion at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:95 [inlined]
+macro expansion at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/small_array.jl:354 [inlined]
+macro expansion at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:92 [inlined]
+macro expansion at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/small_array.jl:354 [inlined]
+isequal_argsvec at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:91
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:196
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+macro expansion at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:95 [inlined]
+macro expansion at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/small_array.jl:354 [inlined]
+macro expansion at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:92 [inlined]
+macro expansion at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/small_array.jl:354 [inlined]
+isequal_argsvec at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:91
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:196
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:202
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+get at ./dict.jl:503
+in at ./abstractdict.jl:22
+isequal at ./abstractdict.jl:513
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:49
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+ht_keyindex at ./dict.jl:249
+getkey at ./dict.jl:571
+macro expansion at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:55 [inlined]
+macro expansion at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/SymbolicUtils.jl:68 [inlined]
+isequal_addmuldict at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:54
+isequal_bsimpl at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:199
+isequal at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:218
+jfptr_isequal_19388.1 at /home/juliahub/.julia/juliaup/julia-1.12.6+dyad-3x2x0-nextx87.x64.linux.musl/lib/julia/sys.so (unknown line)
+ht_keyindex2_shorthash! at /home/runner/.julia/packages/WeakCacheSets/QUAEz/src/WeakCacheSets.jl:146
+getkey! at /home/runner/.julia/packages/WeakCacheSets/QUAEz/src/WeakCacheSets.jl:201
+macro expansion at ./lock.jl:376 [inlined]
+macro expansion at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:597 [inlined]
+macro expansion at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/SymbolicUtils.jl:68 [inlined]
+hashcons at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:596
+hashcons at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/hashconsing.jl:592 [inlined]
+#_#25 at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/inner_ctors.jl:452 [inlined]
+AddMul at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/inner_ctors.jl:444
+jfptr_AddMul_291594.1 at /home/juliahub/.julia/juliaup/julia-1.12.6+dyad-3x2x0-nextx87.x64.linux.musl/lib/julia/sys.so (unknown line)
+#_#33 at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/safe_ctors.jl:137
+Mul at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/safe_ctors.jl:95 [inlined]
+AddWorkerBuffer at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/symbolic_ops/addsub.jl:128
+_run_addbuffer at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/symbolic_ops/addsub.jl:66 [inlined]
+add_worker at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/symbolic_ops/addsub.jl:78
+#maketerm#18 at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/terminterface.jl:304
+maketerm at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/terminterface.jl:259 [inlined]
+combine_fold at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/substitute.jl:222
+substitute_ir! at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/irstructure.jl:857
+IRSubstituter at /home/runner/.julia/packages/SymbolicUtils/htPBH/src/irstructure.jl:875 [inlined]
+Substituter at /home/runner/.julia/packages/Symbolics/26y6Q/src/equations.jl:37
+find_perfect_aliases! at /home/runner/.julia/packages/ModelingToolkit/caOwk/src/systems/alias_elimination.jl:360
+eliminate_perfect_aliases! at /home/runner/.julia/packages/ModelingToolkit/caOwk/src/systems/alias_elimination.jl:36 [inlined]
+#_mtkcompile!#101 at /home/runner/.julia/packages/ModelingToolkit/caOwk/src/systems/systemstructure.jl:213
+_mtkcompile! at /home/runner/.julia/packages/ModelingToolkit/caOwk/src/systems/systemstructure.jl:192
+#mtkcompile!#97 at /home/runner/.julia/packages/ModelingToolkit/caOwk/src/systems/systemstructure.jl:109
+mtkcompile! at /home/runner/.julia/packages/ModelingToolkit/caOwk/src/systems/systemstructure.jl:100 [inlined]
+#__mtkcompile#104 at /home/runner/.julia/packages/ModelingToolkit/caOwk/src/systems/systems.jl:50
+__mtkcompile at /home/runner/.julia/packages/ModelingToolkit/caOwk/src/systems/systems.jl:23 [inlined]
+#_mtkcompile#1206 at /home/runner/.julia/packages/ModelingToolkitBase/JWkxl/src/systems/systems.jl:154
+_mtkcompile at /home/runner/.julia/packages/ModelingToolkitBase/JWkxl/src/systems/systems.jl:127 [inlined]
+#mtkcompile#1205 at /home/runner/.julia/packages/ModelingToolkitBase/JWkxl/src/systems/systems.jl:100
+mtkcompile at /home/runner/.julia/packages/ModelingToolkitBase/JWkxl/src/systems/systems.jl:84 [inlined]
+#_#914 at /home/runner/.julia/packages/ModelingToolkitBase/JWkxl/src/problems/initializationproblem.jl:88
+InitializationProblem at /home/runner/.julia/packages/ModelingToolkitBase/JWkxl/src/problems/initializationproblem.jl:22 [inlined]
+#_#913 at ./none (unknown line) [inlined]
+InitializationProblem at ./none (unknown line)
+unknown function (ip: 0x7333925ccc0a) at (unknown file)
+#maybe_build_initialization_problem#764 at /home/runner/.julia/packages/ModelingToolkitBase/JWkxl/src/systems/problem_utils.jl:1503
+maybe_build_initialization_problem at /home/runner/.julia/packages/ModelingToolkitBase/JWkxl/src/systems/problem_utils.jl:1487
+unknown function (ip: 0x7333925b20ca) at (unknown file)
+#__process_SciMLProblem#786 at /home/runner/.julia/packages/ModelingToolkitBase/JWkxl/src/systems/problem_utils.jl:1886
+unknown function (ip: 0x7333925aea5a) at (unknown file)
+__process_SciMLProblem at /home/runner/.julia/packages/ModelingToolkitBase/JWkxl/src/systems/problem_utils.jl:1839
+unknown function (ip: 0x7333925abc91) at (unknown file)
+#process_SciMLProblem#785 at /home/runner/.julia/packages/ModelingToolkitBase/JWkxl/src/systems/problem_utils.jl:1836
+process_SciMLProblem at /home/runner/.julia/packages/ModelingToolkitBase/JWkxl/src/systems/problem_utils.jl:1824
+unknown function (ip: 0x7333925aa8d1) at (unknown file)
+#_#814 at /home/runner/.julia/packages/ModelingToolkitBase/JWkxl/src/problems/odeproblem.jl:116
+ODEProblem at /home/runner/.julia/packages/ModelingToolkitBase/JWkxl/src/problems/odeproblem.jl:105 [inlined]
+#_#813 at ./none (unknown line) [inlined]
+ODEProblem at ./none (unknown line) [inlined]
+#ODEProblem#812 at ./none (unknown line) [inlined]
+ODEProblem at ./none (unknown line)
+unknown function (ip: 0x7333925aa711) at (unknown file)
+jl_apply at /cache/build/builder-amdci5-7/julialang/julia-release-1-dot-12/src/julia.h:2392 [inlined]
+do_call at /cache/build/builder-amdci5-7/julialang/julia-release-1-dot-12/src/interpreter.c:123
+eval_value at /cache/build/builder-amdci5-7/julialang/julia-release-1-dot-12/src/interpreter.c:243
+eval_stmt_value at /cache/build/builder-amdci5-7/julialang/julia-release-1-dot-12/src/interpreter.c:194 [inlined]
+eval_body at /cache/build/builder-amdci5-7/julialang/julia-release-1-dot-12/src/interpreter.c:707
+jl_interpret_toplevel_thunk at /cache/build/builder-amdci5-7/julialang/julia-release-1-dot-12/src/interpreter.c:898
+jl_toplevel_eval_flex at /cache/build/builder-amdci5-7/julialang/julia-release-1-dot-12/src/toplevel.c:1035
+jl_toplevel_eval_flex at /cache/build/builder-amdci5-7/julialang/julia-release-1-dot-12/src/toplevel.c:975
+ijl_toplevel_eval at /cache/build/builder-amdci5-7/julialang/julia-release-1-dot-12/src/toplevel.c:1047
+ijl_toplevel_eval_in at /cache/build/builder-amdci5-7/julialang/julia-release-1-dot-12/src/toplevel.c:1092
+eval at ./boot.jl:489
+include_string at ./loading.jl:2874
+_include at ./loading.jl:2934
+include at ./Base.jl:306
+exec_options at ./client.jl:317
+_start at ./client.jl:550
+jfptr__start_377965.1 at /home/juliahub/.julia/juliaup/julia-1.12.6+dyad-3x2x0-nextx87.x64.linux.musl/lib/julia/sys.so (unknown line)
+jl_apply at /cache/build/builder-amdci5-7/julialang/julia-release-1-dot-12/src/julia.h:2392 [inlined]
+true_main at /cache/build/builder-amdci5-7/julialang/julia-release-1-dot-12/src/jlapi.c:971
+jl_repl_entrypoint at /cache/build/builder-amdci5-7/julialang/julia-release-1-dot-12/src/jlapi.c:1139
+main at /cache/build/builder-amdci5-7/julialang/julia-release-1-dot-12/cli/loader_exe.c:58
+unknown function (ip: 0x73342a22a600) at /usr/lib/x86_64-linux-gnu/libc.so.6
+__libc_start_main at /usr/lib/x86_64-linux-gnu/libc.so.6 (unknown line)
+unknown function (ip: 0x4010b8) at /workspace/srcdir/glibc-2.17/csu/../sysdeps/x86_64/start.S
+unknown function (ip: (nil)) at (unknown file)
+Allocations: 225136742 (Pool: 225128177; Big: 8565); GC: 59
+[0m[1mImportant Note: [22mJuliaHub provides Dyad for educational and personal use (https://juliahub.com/products/dyad).
+Commercial use requires a license, please contact us for details (https://juliahub.com/company/contact-us-dyad).
+
+To report any bugs, issues, or to request features for Dyad software, please use the public GitHub repository DyadIssues located at https://github.com/DyadLang/DyadIssues.

@@ -7,11 +7,16 @@
 # Run (GPU box):
 #   flock /tmp/omniversemakie-gpu.lock env DISPLAY=:0 JULIA_CUDA_USE_COMPAT=false \
 #     OVRTX_LIBRARY_PATH=<...>/ovrtx/bin/libovrtx-dynamic.so \
-#     julia +dyad-3.2.0-next.87 --project=. scripts/belgian_road_conceptcar_dashboard.jl
+#     julia +dyad-3.2.0-next.87 -t auto --project=. scripts/belgian_road_conceptcar_dashboard.jl
+#   (-t auto engages OmniverseMakie's threaded CPU tonemap — ~15 ms/tick at 1080p)
 #
 # Env knobs:
 #   BELGIAN_SOLVE_ONLY  "1" to stop after caching the solve (no GPU needed)
 #   BELGIAN_RECORD      "0" to skip the video (preview stills + timing only)
+#   PROBE_SWEEP         "1" to sweep steps_per_tick ∈ {8,4,2} (30 video-cadence frames each,
+#                       still + fps per setting) after the timing probe
+#   RECORD_TICKS        host ticks per recorded frame (default 1 — see perf-audit note below)
+#   STEPS_PER_TICK      RTX samples per tick (default 4; 2 = interactive floor, 8 = old default)
 #   CAR_GLASS           "0" for the opaque paint body (default 1 = ghost-glass shells)
 #   GLASS_OPACITY       ghost-shell opacity per surface (default 0.04)
 #   CONCEPTCAR_USD / SKY_HDR   asset overrides (same as the country script)
@@ -26,8 +31,10 @@
 #   • usdplot up = :z; car rotation = rot_to_quat(R_sim)·Q_BASE (scene already carries Q_X90).
 #   • Recording follows the replace_scene! docstring recipe (OmniverseMakie ≥ fefb7e4): stop the
 #     GLMakie renderloop (close_after_renderloop = false!), then OM.record_frame!(session; ticks)
-#     per frame — each tick is one synchronous GLMakie.colorbuffer (render_tick → sync →
-#     steps_per_tick RTX steps → blit → composite), so a frame = ticks × steps_per_tick samples.
+#     per frame — a frame = ticks × steps_per_tick RTX samples.  With accumulate_across_frames =
+#     true, accumulation persists ACROSS frames (2026-07-04 perf audit: zero per-frame resets
+#     measured), so ticks = 1 keeps converging frame-over-frame and per-frame cost is dominated by
+#     steps_per_tick × S_step (S ≈ 42 ms/step for this scene — the ghost-glass shells are pricey).
 
 using CarComponents
 using ModelingToolkit
@@ -53,6 +60,8 @@ const SKY = get(ENV, "SKY_HDR",
 const SOL_CACHE  = joinpath(DATA, "belgian_conceptcar_sol.jls")
 const CAR_GLASS  = get(ENV, "CAR_GLASS", "1") == "1"
 const GLASS_OPACITY = parse(Float64, get(ENV, "GLASS_OPACITY", "0.04"))
+const RECORD_TICKS   = parse(Int, get(ENV, "RECORD_TICKS", "1"))
+const STEPS_PER_TICK = parse(Int, get(ENV, "STEPS_PER_TICK", "4"))
 const VIDEO_OUT = joinpath(ROOT, "assets",
     "belgian_road_conceptcar_dashboard" * (CAR_GLASS ? "_glass" : "") * "_rt.mp4")
 const G0 = 9.80665
@@ -679,17 +688,19 @@ GLMakie.colorbuffer(glscr)                                 # layout pass (viewpo
 GLMakie.stop_renderloop!(glscr; close_after_renderloop = false)
 logmsg("LScene viewport: $(ls.scene.viewport[]) (renderloop stopped, screen open=$(isopen(glscr)))")
 
-session = OM.replace_scene!(ls; steps_per_tick = 8)
+session = OM.replace_scene!(ls; steps_per_tick = STEPS_PER_TICK)
 logmsg("embedded session up: $(length(session.screen.plot2robj)) plots authored, " *
        "fb_size=$(session.screen.fb_size)")
 OM.push_environment_image!(session.screen, SKY; intensity = 0.7)   # live swap (post-author)
 
-# One recorded frame = 3 synchronous host ticks (3 × steps_per_tick = 24 RTX samples: the first
-# tick syncs the moved car and resets accumulation, the rest refine) — record_frame! is the
-# scripted-recording companion to replace_scene!; see its docstring's recipe.
+# One recorded frame = RECORD_TICKS × STEPS_PER_TICK RTX samples.  With accumulate_across_frames
+# = true, accumulation persists ACROSS frames — the 2026-07-04 perf audit measured ZERO per-frame
+# resets, so extra ticks are NOT a reset+refine cycle, just more samples; ticks = 1 keeps
+# converging frame-over-frame at video cadence.  Cost ≈ ticks × (steps_per_tick × S_step + fixed
+# present tail), S_step ≈ 42 ms for this scene.
 function frame!(i)
     set_frame!(i)
-    return OM.record_frame!(session; ticks = 3)
+    return OM.record_frame!(session; ticks = RECORD_TICKS)
 end
 
 for (tgt, _, _, _, _, _) in WHEELS                         # MUST_EXIST re-probe (throws if wrong)
@@ -699,6 +710,7 @@ end
 idx_of(t) = clamp(searchsortedfirst(sol.t, t), 1, N)
 prefix = "belgian_dashboard_" * (CAR_GLASS ? "glass_" : "")
 for (tag, i) in [("t00", 1), ("t04", idx_of(4.0)), ("t09", idx_of(9.0))]
+    foreach(_ -> frame!(i), 1:3)      # settle: cross-frame accumulation blends out the time jump
     img = frame!(i)
     OM.PNGFiles.save(joinpath(DATA, prefix * "still_" * tag * ".png"), img)
     logmsg("still $tag saved ($(size(img)))")
@@ -715,6 +727,27 @@ const FRAMERATE = 30
 times = collect(range(sol.t[1], sol.t[end]; step = 1 / FRAMERATE))
 logmsg("TIMING: $(round(fps; digits = 2)) fps → $(length(times))-frame video ≈ " *
        "$(round(length(times) / fps / 60; digits = 1)) min")
+
+# Perf-audit sweep (PROBE_SWEEP=1): steps_per_tick is a plain mutable field on the live session,
+# so sweep it in-place — 30 frames at video cadence per setting (real motion-noise conditions;
+# the LAST frame is the representative still, fully settled into cross-frame accumulation).
+function sweep_steps!()
+    for n in (8, 4, 2)
+        session.steps_per_tick = n
+        foreach(_ -> frame!(idx_of(6.0)), 1:3)             # settle before timing
+        t0 = time()
+        img = frame!(idx_of(6.0))
+        for k in 1:29
+            img = frame!(idx_of(6.0 + k / FRAMERATE))
+        end
+        f = 30 / (time() - t0)
+        OM.PNGFiles.save(joinpath(DATA, prefix * "sweep_steps$(n).png"), img)
+        logmsg("SWEEP steps_per_tick=$n: $(round(f; digits = 2)) fps " *
+               "($(round(1000 / f; digits = 0)) ms/frame, 30 frames @ video cadence)")
+    end
+    session.steps_per_tick = STEPS_PER_TICK
+end
+get(ENV, "PROBE_SWEEP", "0") == "1" && sweep_steps!()
 
 if get(ENV, "BELGIAN_RECORD", "1") == "1"
     img1 = frame!(1)

@@ -133,3 +133,106 @@ All three items fixed/addressed upstream in OmniverseMakie.jl:
 
 Regression test added (`test/replace_scene_test.jl`, third prog): rotated target +
 stopped-loop `record_frame!` + >64KB child-process pipe-write smoke — 9/9 green.
+
+---
+
+## PERFORMANCE AUDIT (2026-07-04, OmniverseMakie.jl profiling)
+
+The dashboard records at ~0.92 fps (≈1087 ms/frame). We profiled where that time goes to
+tell the car agent what is worth tuning. Short version: it's the raytracer, not the hybrid.
+
+### 1. The 0.92 fps is ~92% raw RTX stepping — the hybrid machinery is nearly free
+
+Measured on a synthetic 1920×1080 replica of the dashboard shape (embedded LScene 1214×939,
+`steps_per_tick = 8`, `ticks = 3`, accumulate mode — the same knobs as the real script at
+`belgian_road_conceptcar_dashboard.jl:406,682,692`). Per-recorded-frame breakdown:
+
+- 24× `OV.step!` (3 ticks × 8 steps) = **189.7 ms (69.5%)** — the raytracer itself
+- 3× CPU tonemap = **53.5 ms (19.6%)**
+- 3× HdrColor map = 10.1 ms
+- 3× GL composite + full-window readback = 7.0 ms (the pure-GL colorbuffer, tick detached, is 2.34 ms)
+- sync = 9.3 ms
+- 4-axes observable churn = 1.7 ms
+- `permutedims` + ffmpeg-pipe write = 3.4 ms
+
+So on the replica, ~90% is RTX steps + tonemap and everything the `replace_scene!` hybrid adds
+(sync, composite, readback, blit, pipe write) is single-digit-percent overhead. The frame cost
+follows `frame ≈ ticks × (steps_per_tick × S + 26.6 ms)`, where `S` is the per-step raytrace
+cost and 26.6 ms is the fixed per-tick tail (tonemap + map + composite + readback + sync). This
+fits the replica at **S = 7.85 ms/step** and the *real dashboard* at **S ≈ 42 ms/step**.
+
+The real dashboard's per-step cost is **5.3× the replica's at the same resolution** — that gap is
+pure SCENE cost, not backend overhead. Prime suspect: the ghost-glass body shells authored at very
+low opacity (`GLASS_OPACITY` default 0.04, script `:55`; OmniPBR `enable_opacity = 1` /
+`opacity_constant` at `:519-520`) — transparent surfaces force deep ray traversal. Secondary
+contributors: the hero ConceptCar asset, the dome HDR, and the plot count.
+
+### 2. The script's accumulation-reset assumption is wrong (measured)
+
+`OV._RESET_OBSERVER` counted **ZERO accumulation resets per recorded frame** in accumulate mode
+across every variant we tried (camera move, mesh move, axes updates, full loop). The comment at
+the `record_frame!` call (script `:687-689`, "the first tick syncs the moved car and resets
+accumulation, the rest refine") is **stale**: with `accumulate_across_frames = true` (script `:406`)
+accumulation persists ACROSS frames, so extra ticks per frame are NOT needed to re-converge. Worth
+fixing that comment the next time the script is touched — it is the reason `ticks = 3` looks load-
+bearing when it isn't.
+
+### 3. Recommended changes for the car agent (with projected fps from the measured model, S ≈ 42 ms)
+
+- **`record_frame!(session; ticks = 1)`** (script `:692`) → ~361 ms/frame ≈ **2.8 fps (3.0×)**.
+  Config-only, one character. Because accumulation persists across frames (see #2), a single tick
+  per frame keeps converging — this is the cheapest win.
+- **ticks=1 + `session.steps_per_tick = 4`** → ~194 ms ≈ **5.1 fps**; `steps_per_tick = 2` → ~110 ms
+  ≈ **9 fps (10×)**. `steps_per_tick` is a plain mutable field — settable on the live session at any
+  time. Sweep it for acceptable motion-noise (the interactive viewport ships at 2 steps/tick, so 2
+  is a known-usable floor).
+- **TEST THE GLASS.** Render one still with the ghost shells opaque (`CAR_GLASS = 0`, or raise
+  `GLASS_OPACITY`) and compare wall time. If `S` drops toward ~8 ms/step, the low-opacity glass is
+  confirmed as the dominant scene cost — then consider higher opacity or a lower `max_bounces` for
+  recording runs specifically.
+- **Upstream (OmniverseMakie) fixes are landing** that shrink the fixed per-tick tail without any
+  script change: `record_frame!` now skips the discarded intermediate presents (saves ~26.6 ms per
+  tick beyond the first at 1080p; pixel-equivalent output), and the CPU tonemap is threaded (needs
+  `julia -t auto` to benefit; saves up to ~15 ms/tick single→multi thread).
+
+### 4. Combined endpoint
+
+Config-only (ticks=1, steps_per_tick=4) ≈ **5 fps**; add the glass fix ≈ **8–10 fps** at the full
+1080p dashboard shape.
+
+---
+
+## CAR-AGENT FOLLOW-UP (2026-07-04) — audit implemented + glass diagnostic measured
+
+All §3 recommendations are in `scripts/belgian_road_conceptcar_dashboard.jl`: `RECORD_TICKS`
+(default **1**) and `STEPS_PER_TICK` (default **4**) env knobs, the stale reset comment rewritten
+with the measured behavior, `-t auto` in the run command (threaded tonemap picked up from the
+working tree, along with the bare-step `record_frame!`), and a `PROBE_SWEEP=1` mode (30
+video-cadence frames per steps setting, representative still + fps each). Glass opacity stays at
+0.04 — a hard requirement, so the "raise opacity" option is permanently off the table for this
+deliverable.
+
+**Sweep results** (ticks = 1, `-t auto`, real dashboard, 30-frame video-cadence means):
+
+| steps_per_tick | glass 0.04     | opaque (CAR_GLASS=0) |
+|---------------:|----------------|----------------------|
+| 8              | 344 ms (2.91)  | 246 ms (4.07 fps)    |
+| 4              | 184 ms (5.44)  | 136 ms (7.37 fps)    |
+| 2              | 104 ms (9.57)  |  86 ms (11.69 fps)   |
+
+Linear fit per your cost model: **S_glass ≈ 40 ms/step** (tail ≈ 24 ms — your model's numbers
+reproduce on the real script), **S_opaque ≈ 26.7 ms/step**.
+
+**Glass diagnostic verdict: partially disconfirmed.** The ghost shells multiply per-step cost by
+only ~1.5×; even fully opaque, S is ~3.4× your replica's 7.85 ms/step. So the dominant scene cost
+is the base content — hero ConceptCar asset + 41 MBC plots + dome HDR + road/grass meshes — not
+the low-opacity glass. If per-step cost matters upstream, profiling should target which of those
+dominates S_opaque, not transparency depth.
+
+**Quality gate for the shipped default:** steps = 4 is visually equivalent to 8 (embedded-viewport
+RMSE 1.9/255, car close-ups indistinguishable); steps = 2 shows a slightly softer ghost shell —
+with persistent cross-frame accumulation, fewer samples per displayed frame weight older car
+positions higher, i.e. more temporal smear on moving content. Hence default 4, not 2.
+
+**Endpoint:** recording now runs at **5.44 fps vs 0.92 baseline (5.9×)**, zero visible quality
+change, glass untouched.
